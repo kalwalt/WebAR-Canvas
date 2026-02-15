@@ -1,0 +1,31 @@
+material {
+    name : video_background,
+    shadingModel : unlit,
+    blending : opaque,
+    parameters : [
+        {
+            type : samplerExternal,
+            name : videoTexture
+        }
+    ],
+    requires : [
+        uv0
+    ],
+    depthWrite : false,
+    depthCulling : false,
+    doubleSided : true
+}
+
+fragment {
+    void material(inout MaterialInputs material) {
+        prepareMaterial(material);
+
+        float2 uv = getUV0();
+        // Inversione asse Y per il video stream
+        uv.y = 1.0 - uv.y;
+
+        // CORREZIONE: Usa il nome esatto generato dai parametri
+        // e assegna a inputs.baseColor, NON a material.baseColor
+        material.baseColor = texture(materialParams_videoTexture, uv);
+    }
+}
