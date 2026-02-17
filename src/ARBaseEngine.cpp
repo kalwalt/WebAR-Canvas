@@ -34,14 +34,47 @@ ARBaseEngine::~ARBaseEngine() {
 }
 
 bool ARBaseEngine::init(const char* canvasId, int width, int height, const std::string& markerPath) {
+    // --- STEP 1: Manual configuration of the WebGL context ---
+    EmscriptenWebGLContextAttributes attr;
+    emscripten_webgl_init_context_attributes(&attr);
+    
+    // Filament strictly requires WebGL 2.0
+    attr.majorVersion = 2;
+    attr.minorVersion = 0;
+    
+    // Settings for performance and AR compatibility
+    attr.alpha = false;          // Saves bandwidth if transparency under the canvas is not needed
+    attr.depth = true;           // Necessary for 3D
+    attr.stencil = false;        // Usually not needed for basic scenes
+    attr.antialias = false;      // Filament does its own antialiasing internally (MSAA)
+    attr.preserveDrawingBuffer = false; 
+    attr.failIfMajorPerformanceCaveat = false;
+    // Crea il contesto collegandosi all'ID "canvas" definito nel tuo shell.html
+    EMSCRIPTEN_WEBGL_CONTEXT_HANDLE ctx = emscripten_webgl_create_context("#canvas", &attr);
+
+    if (ctx <= 0) {
+        printf("CRITICAL ERROR: Failed to create WebGL 2 context!\n");
+        return false;
+    }
+    // --- STEP 2: Make the context "current" ---
+    // This is the step that was missing! Now GL calls know where to go.
+    EMSCRIPTEN_RESULT result = emscripten_webgl_make_context_current(ctx);
+    
+    if (result != EMSCRIPTEN_RESULT_SUCCESS) {
+        printf("CRITICAL ERROR: Failed to make WebGL context current!\n");
+        return false;
+    }
+
+    printf("WebGL 2 Context created and active. Initializing Filament...\n");
     // 1. Initialize Filament Engine
     filament::Engine::Config config = {};
-    engine = filament::Engine::create(filament::Engine::Backend::DEFAULT, nullptr, nullptr, &config);
+    engine = filament::Engine::create(filament::Engine::Backend::OPENGL, nullptr, nullptr, &config);
     if (engine == nullptr) {
         printf("ERROR: Unable to create Filament Engine!\n");
         return false;
     }
-    swapChain = engine->createSwapChain((void*)canvasId);
+    printf("Filament Engine created successfully!\n");
+    swapChain = engine->createSwapChain((void*)ctx);
     renderer = engine->createRenderer();
     scene = engine->createScene();
     view = engine->createView();

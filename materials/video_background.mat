@@ -4,7 +4,7 @@ material {
     blending : opaque,
     parameters : [
         {
-            type : samplerExternal,
+            type : sampler2d,
             name : videoTexture
         }
     ],

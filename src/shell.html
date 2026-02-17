@@ -5,36 +5,83 @@
     <title>WebAR-Canvas | Filament NFT</title>
     <style>
         body { margin: 0; background-color: black; overflow: hidden; }
-        #canvas { width: 100vw; height: 100vh; display: block; }
-        /* Video nascosto: serve solo come sorgente texture */
+        /* The canvas must fill everything and be block to avoid scrollbars */
+        #canvas { width: 100vw; height: 100vh; display: block; outline: none; }
+        /* Hidden video: only used as a texture source */
         #ar-video { display: none; }
     </style>
 </head>
 <body>
-    <canvas id="canvas"></canvas>
+    <canvas id="canvas" oncontextmenu="event.preventDefault()"></canvas>
     
     <video id="ar-video" autoplay playsinline></video>
 
     <script type='text/javascript'>
         var Module = {
-            canvas: document.getElementById('canvas'),
+            // FIX 1: Add print handlers to see C++ logs in the console
+            print: (function() {
+                return function(text) {
+                    if (arguments.length > 1) text = Array.prototype.slice.call(arguments).join(' ');
+                    console.log(text);
+                };
+            })(),
+            printErr: function(text) {
+                if (arguments.length > 1) text = Array.prototype.slice.call(arguments).join(' ');
+                console.error(text);
+            },
+
+            // FIX 2: The canvas definition must be a function that returns the element.
+            // This is the standard Emscripten pattern to ensure the WebGL context attaches.
+            canvas: (function() {
+                var canvas = document.getElementById('canvas');
+
+                // Handle WebGL context loss (common on mobile/AR)
+                canvas.addEventListener("webglcontextlost", function(e) { 
+                    alert('WebGL context lost. You will need to reload the page.'); 
+                    e.preventDefault(); 
+                }, false);
+
+                return canvas;
+            })(),
+
+            setStatus: function(text) {
+                if (!Module.setStatus.last) Module.setStatus.last = { time: Date.now(), text: '' };
+                if (text === Module.setStatus.last.text) return;
+                console.log("Emscripten Status:", text);
+            },
+
             onRuntimeInitialized: function() {
-                console.log('WASM Runtime Pronto');
+                console.log('WASM Runtime Ready - Starting Webcam...');
                 startWebcam();
             }
+        };
+
+        // Global error handler
+        window.onerror = function(event) {
+            console.error("Global Error:", event);
         };
 
         async function startWebcam() {
             const video = document.getElementById('ar-video');
             try {
+                // facingMode: "environment" is correct for AR rear camera
                 const stream = await navigator.mediaDevices.getUserMedia({ 
-                    video: { facingMode: "environment" }, 
+                    video: { 
+                        facingMode: "environment",
+                        width: { ideal: 1280 }, // Suggest a resolution
+                        height: { ideal: 720 } 
+                    }, 
                     audio: false 
                 });
                 video.srcObject = stream;
-                video.play();
+                // Wait for the video to be really ready before logging
+                video.onloadedmetadata = () => {
+                    console.log(`Webcam started: ${video.videoWidth}x${video.videoHeight}`);
+                    video.play();
+                };
             } catch (err) {
-                console.error("Errore accesso webcam: ", err);
+                console.error("Critical webcam access error: ", err);
+                alert("Unable to access the webcam. Check permissions or use HTTPS.");
             }
         }
     </script>
