@@ -1,13 +1,16 @@
-#include <filament/TextureSampler.h>
-#include <filament/RenderableManager.h>
-#include <filament/IndexBuffer.h>
-#include <filament/VertexBuffer.h>
-#include <filament/SwapChain.h>
 #include "ARBaseEngine.h"
+#include <GLES3/gl3.h>
+#include <backend/Platform.h>
+#include <backend/platforms/PlatformWebGL.h>
 #include <emscripten.h>
 #include <emscripten/html5.h>
+#include <filament/IndexBuffer.h>
+#include <filament/RenderableManager.h>
+#include <filament/Renderer.h>
+#include <filament/SwapChain.h>
+#include <filament/TextureSampler.h>
+#include <filament/VertexBuffer.h>
 #include <fstream>
-#include <iostream>
 
 #ifdef WEBGL
 #undef WEBGL
@@ -15,157 +18,269 @@
 
 // Helper JavaScript to update the WebGL texture from the <video> tag
 EM_JS(void, update_webgl_texture, (int textureId), {
-    const video = document.getElementById('ar-video'); // Assume it exists in the DOM
-    const gl = Module.ctx; // The context created by Emscripten/Filament
-    if (video && video.readyState >= video.HAVE_CURRENT_DATA) {
-        gl.bindTexture(gl.TEXTURE_2D, GL.textures[textureId]);
-        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, gl.RGB, gl.UNSIGNED_BYTE, video);
+  const video = document.getElementById('ar-video');
+
+  // Try to get the GL context from multiple sources
+  var gl = (GL.currentContext && GL.currentContext.GLctx) || Module.ctx;
+  if (!gl) {
+    const canvas = document.getElementById('canvas');
+    gl = canvas.getContext('webgl2') || canvas.getContext('webgl');
+  }
+
+  if (!gl) {
+    console.error(
+        "Critical: Could not find WebGL context in update_webgl_texture");
+    return;
+  }
+
+  if (video && video.readyState >= video.HAVE_CURRENT_DATA) {
+    const glTexture = GL.textures[textureId];
+    if (!glTexture) {
+      console.error("Critical: GL.textures[" + textureId +
+                    "] is undefined. Native texture handle not found in " +
+                    "Emscripten GL object.");
+      return;
     }
+
+    gl.bindTexture(gl.TEXTURE_2D, glTexture);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, gl.RGB, gl.UNSIGNED_BYTE, video);
+    // Optional: verify error
+    const err = gl.getError();
+    if (err != 0) {
+      console.error("WebGL Error in update_webgl_texture:", err);
+    }
+  } else {
+    // console.warn("Video not ready yet");
+  }
 });
 
 ARBaseEngine::ARBaseEngine() : engine(nullptr), renderer(nullptr) {}
 
 ARBaseEngine::~ARBaseEngine() {
-    engine->destroy(renderer);
-    engine->destroy(swapChain);
-    engine->destroy(scene);
-    engine->destroy(view);
-    Engine::destroy(&engine);
+  engine->destroy(renderer);
+  engine->destroy(swapChain);
+  engine->destroy(scene);
+  engine->destroy(view);
+  engine->destroy(camera->getEntity());
+  Engine::destroy(&engine);
+  delete platform;
 }
 
-bool ARBaseEngine::init(const char* canvasId, int width, int height, const std::string& markerPath) {
-    // --- STEP 1: Manual configuration of the WebGL context ---
-    EmscriptenWebGLContextAttributes attr;
-    emscripten_webgl_init_context_attributes(&attr);
-    
-    // Filament strictly requires WebGL 2.0
-    attr.majorVersion = 2;
-    attr.minorVersion = 0;
-    
-    // Settings for performance and AR compatibility
-    attr.alpha = false;          // Saves bandwidth if transparency under the canvas is not needed
-    attr.depth = true;           // Necessary for 3D
-    attr.stencil = false;        // Usually not needed for basic scenes
-    attr.antialias = false;      // Filament does its own antialiasing internally (MSAA)
-    attr.preserveDrawingBuffer = false; 
-    attr.failIfMajorPerformanceCaveat = false;
-    // Crea il contesto collegandosi all'ID "canvas" definito nel tuo shell.html
-    EMSCRIPTEN_WEBGL_CONTEXT_HANDLE ctx = emscripten_webgl_create_context("#canvas", &attr);
-
-    if (ctx <= 0) {
-        printf("CRITICAL ERROR: Failed to create WebGL 2 context!\n");
+// Custom Platform to handle WebGL context switching correctly
+class CustomWebGLPlatform : public filament::backend::PlatformWebGL {
+public:
+  bool makeCurrent(ContextType type, SwapChain *drawSwapChain,
+                   SwapChain *readSwapChain) override {
+    EMSCRIPTEN_WEBGL_CONTEXT_HANDLE ctx =
+        (EMSCRIPTEN_WEBGL_CONTEXT_HANDLE)drawSwapChain;
+    if (ctx > 0) {
+      EMSCRIPTEN_RESULT res = emscripten_webgl_make_context_current(ctx);
+      if (res != EMSCRIPTEN_RESULT_SUCCESS) {
+        printf("ERROR: makeCurrent failed with code %d\n", res);
         return false;
+      }
+      return true;
     }
-    // --- STEP 2: Make the context "current" ---
-    // This is the step that was missing! Now GL calls know where to go.
-    EMSCRIPTEN_RESULT result = emscripten_webgl_make_context_current(ctx);
-    
-    if (result != EMSCRIPTEN_RESULT_SUCCESS) {
-        printf("CRITICAL ERROR: Failed to make WebGL context current!\n");
-        return false;
-    }
+    return true;
+  }
+};
 
-    printf("WebGL 2 Context created and active. Initializing Filament...\n");
-    // 1. Initialize Filament Engine
-    filament::Engine::Config config = {};
-    engine = filament::Engine::create(filament::Engine::Backend::OPENGL, nullptr, nullptr, &config);
-    if (engine == nullptr) {
-        printf("ERROR: Unable to create Filament Engine!\n");
-        return false;
-    }
-    printf("Filament Engine created successfully!\n");
-    swapChain = engine->createSwapChain((void*)ctx);
-    renderer = engine->createRenderer();
-    scene = engine->createScene();
-    view = engine->createView();
-    camera = engine->createCamera(utils::EntityManager::get().create());
+bool ARBaseEngine::init(const char *canvasId, int width, int height,
+                        const std::string &markerPath) {
+  // --- STEP 1: Manual configuration of the WebGL context ---
+  EmscriptenWebGLContextAttributes attr;
+  emscripten_webgl_init_context_attributes(&attr);
 
-    view->setViewport({0, 0, (uint32_t)width, (uint32_t)height});
-    view->setScene(scene);
-    view->setCamera(camera);
+  // Filament strictly requires WebGL 2.0
+  attr.majorVersion = 2;
+  attr.minorVersion = 0;
+  attr.depth = true;
+  attr.stencil = false;
+  attr.antialias = false; // MSAA handled by Filament
+  attr.alpha = false;
+  attr.preserveDrawingBuffer = false;
+  attr.failIfMajorPerformanceCaveat = false;
+
+  EMSCRIPTEN_WEBGL_CONTEXT_HANDLE ctx =
+      emscripten_webgl_create_context("#canvas", &attr);
+
+  if (ctx <= 0) {
+    printf("CRITICAL ERROR: Failed to create WebGL 2 context!\n");
+    return false;
+  }
+  glContext = ctx; // Store for backup
+
+  // Make current immediately
+  if (emscripten_webgl_make_context_current(ctx) != EMSCRIPTEN_RESULT_SUCCESS) {
+    printf("CRITICAL ERROR: Failed to make WebGL context current!\n");
+    return false;
+  }
+
+  printf("WebGL 2 Context created and active. Initializing Filament...\n");
+
+  // 1. Initialize Filament Engine with Custom Platform
+  platform = new CustomWebGLPlatform();
+  filament::Engine::Config config = {};
+  engine = filament::Engine::create(filament::Engine::Backend::OPENGL, platform,
+                                    nullptr, &config);
+
+  if (engine == nullptr) {
+    printf("ERROR: Unable to create Filament Engine!\n");
+    return false;
+  }
+  printf("Filament Engine created successfully!\n");
+
+  // Pass context handle to createSwapChain
+  swapChain = engine->createSwapChain((void *)ctx);
+
+  renderer = engine->createRenderer();
+  // Internal frame pacing for Web
+  renderer->setDisplayInfo({.refreshRate = 60.0f});
+
+  scene = engine->createScene();
+  view = engine->createView();
+  camera = engine->createCamera(utils::EntityManager::get().create());
+
+  view->setViewport({0, 0, (uint32_t)width, (uint32_t)height});
+  view->setScene(scene);
+  view->setCamera(camera);
+  view->setPostProcessingEnabled(false); // Keep disabled for now to start safe
+
+  const float aspect = (float)width / height;
+  camera->setProjection(Camera::Projection::ORTHO, -1.0, 1.0, -1.0, 1.0, 0.0,
+                        10.0);
+  camera->lookAt({0, 0, 1}, {0, 0, 0}, {0, 1, 0});
+
+  filament::Renderer::ClearOptions clearOptions;
+  clearOptions.clearColor = {0.0f, 0.0f, 1.0f, 1.0f}; // Blue
+  clearOptions.clear = true;
+  renderer->setClearOptions(clearOptions);
+
+  // 3. Load the compiled video material (.fil)
+  std::ifstream is("/assets/video_background.fil", std::ios::binary);
+  if (is) {
+    std::vector<char> buffer((std::istreambuf_iterator<char>(is)),
+                             std::istreambuf_iterator<char>());
+    videoMaterial = Material::Builder()
+                        .package(buffer.data(), buffer.size())
+                        .build(*engine);
+    videoMaterialInst = videoMaterial->createInstance();
+
+    // Create explicit WebGL texture
+    glGenTextures(1, &nativeTextureId);
+    glBindTexture(GL_TEXTURE_2D, nativeTextureId);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, width, height, 0, GL_RGB,
+                 GL_UNSIGNED_BYTE, nullptr);
+
+    // Create External Texture importing the native WebGL texture
+    videoTexture = Texture::Builder()
+                       .width(width)
+                       .height(height)
+                       .sampler(Texture::Sampler::SAMPLER_2D)
+                       .format(Texture::InternalFormat::RGB8)
+                       .import(nativeTextureId)
+                       .build(*engine);
+
+    videoMaterialInst->setParameter("videoTexture", videoTexture,
+                                    TextureSampler());
 
     // 2. Create the Video Background (Quad + Texture)
-    createSkyboxQuad();
+    createSkyboxQuad(); // Restored
 
-    // 3. Load the compiled video material (.fil)
-    std::ifstream is("/assets/video_background.fil", std::ios::binary);
-    if (is) {
-        std::vector<char> buffer((std::istreambuf_iterator<char>(is)), std::istreambuf_iterator<char>());
-        videoMaterial = Material::Builder().package(buffer.data(), buffer.size()).build(*engine);
-        videoMaterialInst = videoMaterial->createInstance();
-        
-        // Create External Texture
-        videoTexture = Texture::Builder()
-            .width(width).height(height)
-            .sampler(Texture::Sampler::SAMPLER_2D) // WebGL often uses SAMPLER_2D for video
-            .format(Texture::InternalFormat::RGB8)
-            .build(*engine);
+  } else {
+    printf("ERROR: Failed to open material file!\n");
+  }
 
-        videoMaterialInst->setParameter("videoTexture", videoTexture, TextureSampler());
-        
-        // Assign the material to the background quad
-        auto& tcm = engine->getRenderableManager();
-        tcm.setMaterialInstanceAt(tcm.getInstance(skyboxQuad), 0, videoMaterialInst);
-    }
+  // 4. Developer hook
+  this->setup(engine, scene);
 
-    // 4. Developer hook
-    this->setup(engine, scene);
-
-    return true;
+  return true;
 }
 
 void ARBaseEngine::createSkyboxQuad() {
-    struct Vertex { math::float2 position; math::float2 uv; };
-    static const Vertex VERTICES[4] = {
-        {{-1, -1}, {0, 0}}, {{ 1, -1}, {1, 0}},
-        {{-1,  1}, {0, 1}}, {{ 1,  1}, {1, 1}}
-    };
-    static const uint16_t INDICES[6] = { 0, 1, 2, 2, 1, 3 };
+  struct Vertex {
+    math::float2 position;
+    math::float2 uv;
+  };
+  static const Vertex VERTICES[4] = {
+      {{-1, -1}, {0, 0}},
+      {{1, -1}, {1, 0}},
+      {{-1, 1}, {0, 1}},
+      {{1, 1}, {1, 1}}}; // Corrected to standard quad
+  static const uint16_t INDICES[6] = {0, 1, 2,
+                                      2, 1, 3}; // Standard quad indices
 
-    skyboxVb = VertexBuffer::Builder()
-        .vertexCount(4)
-        .bufferCount(1)
-        .attribute(VertexAttribute::POSITION, 0, VertexBuffer::AttributeType::FLOAT2, 0, sizeof(Vertex))
-        .attribute(VertexAttribute::UV0, 0, VertexBuffer::AttributeType::FLOAT2, sizeof(math::float2), sizeof(Vertex))
-        .build(*engine);
-    skyboxVb->setBufferAt(*engine, 0, VertexBuffer::BufferDescriptor(VERTICES, sizeof(VERTICES)));
+  skyboxVb =
+      VertexBuffer::Builder()
+          .vertexCount(4)
+          .bufferCount(1)
+          .attribute(VertexAttribute::POSITION, 0,
+                     VertexBuffer::AttributeType::FLOAT2, 0, sizeof(Vertex))
+          .attribute(VertexAttribute::UV0, 0,
+                     VertexBuffer::AttributeType::FLOAT2, sizeof(math::float2),
+                     sizeof(Vertex))
+          .build(*engine);
+  skyboxVb->setBufferAt(
+      *engine, 0, VertexBuffer::BufferDescriptor(VERTICES, sizeof(VERTICES)));
 
-    skyboxIb = IndexBuffer::Builder().indexCount(6).bufferType(IndexBuffer::IndexType::USHORT).build(*engine);
-    skyboxIb->setBuffer(*engine, IndexBuffer::BufferDescriptor(INDICES, sizeof(INDICES)));
-    skyboxQuad = utils::EntityManager::get().create();
-    RenderableManager::Builder(1)
-        .boundingBox({ {0,0,0}, {1,1,1} })
-        .material(0, videoMaterialInst)
-        .geometry(0, RenderableManager::PrimitiveType::TRIANGLES, skyboxVb, skyboxIb)
-        .culling(false) // Essential for the background
-        .build(*engine, skyboxQuad);
-    
-    scene->addEntity(skyboxQuad);
+  skyboxIb = IndexBuffer::Builder()
+                 .indexCount(6)
+                 .bufferType(IndexBuffer::IndexType::USHORT)
+                 .build(*engine);
+  skyboxIb->setBuffer(*engine,
+                      IndexBuffer::BufferDescriptor(INDICES, sizeof(INDICES)));
+  skyboxQuad = utils::EntityManager::get().create();
+  RenderableManager::Builder(1)
+      .boundingBox({{0, 0, 0}, {1, 1, 1}})
+      .material(0, videoMaterialInst)
+      .geometry(0, RenderableManager::PrimitiveType::TRIANGLES, skyboxVb,
+                skyboxIb)
+      .culling(false) // Essential for the background
+      .build(*engine, skyboxQuad);
+
+  scene->addEntity(skyboxQuad);
 }
 
 void ARBaseEngine::updateVideoTexture() {
-    // Retrieve the internal WebGL texture ID and update it via JS
-    if (videoTexture) {
-        // Note: this requires access to Filament backend APIs
-        // For simplicity, we use the ID managed by Emscripten
-        update_webgl_texture(0); // Simplification: map the real ID
-    }
+  // Retrieve the internal WebGL texture ID and update it via JS
+  if (videoTexture) {
+    update_webgl_texture(nativeTextureId); // Pass the real ID
+  }
 }
 
 void ARBaseEngine::render() {
-    if (renderer->beginFrame(swapChain)) {
-        renderer->render(view);
-        renderer->endFrame();
+  if (renderer->beginFrame(swapChain)) {
+    renderer->render(view);
+    renderer->endFrame();
+
+    // engine->execute();
+
+    static int frameCount = 0;
+    if (frameCount++ % 120 == 0)
+      printf("Rendered frame %d (beginFrame=true)\n", frameCount);
+  } else {
+    static int skipCount = 0;
+    if (skipCount++ % 120 == 0) {
+      printf("Skipped frame %d (beginFrame=false)\n", skipCount);
+      GLenum err = glGetError();
+      if (err != GL_NO_ERROR)
+        printf("GL Error during skip: 0x%x\n", err);
     }
+  }
+  engine->execute();
 }
 
-void ARBaseEngine::tick(void* arg) {
-    auto* app = static_cast<ARBaseEngine*>(arg);
-    app->updateVideoTexture();
-    app->update(0.016f);
-    app->render();
+void ARBaseEngine::tick(void *arg) {
+  auto *app = static_cast<ARBaseEngine *>(arg);
+  app->updateVideoTexture(); // Re-enable video update
+  app->update(0.016f);
+  app->render();
 }
 
 void ARBaseEngine::run() {
-    emscripten_set_main_loop_arg(ARBaseEngine::tick, this, 0, 1);
+  emscripten_set_main_loop_arg(ARBaseEngine::tick, this, 0, 1);
 }

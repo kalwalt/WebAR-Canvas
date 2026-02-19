@@ -1,68 +1,78 @@
 #ifndef AR_BASE_ENGINE_H
 #define AR_BASE_ENGINE_H
 
-#include <filament/Engine.h>
 #include <backend/DriverEnums.h>
-#include <filament/Renderer.h>
-#include <filament/Scene.h>
-#include <filament/View.h>
 #include <filament/Camera.h>
-#include <filament/Viewport.h>
-#include <filament/VertexBuffer.h>
+#include <filament/Engine.h>
 #include <filament/IndexBuffer.h>
 #include <filament/Material.h>
-#include <filament/Texture.h>
+#include <filament/Renderer.h>
+#include <filament/Scene.h>
 #include <filament/SwapChain.h>
+#include <filament/Texture.h>
+#include <filament/VertexBuffer.h>
+#include <filament/View.h>
+#include <filament/Viewport.h>
 #include <utils/Entity.h>
 #include <utils/EntityManager.h>
 
 #include <string>
 #include <vector>
 
+namespace filament {
+namespace backend {
+class Platform;
+}
+} // namespace filament
+
 using namespace filament;
 
 class ARBaseEngine {
 public:
-    ARBaseEngine();
-    virtual ~ARBaseEngine();
+  ARBaseEngine();
+  virtual ~ARBaseEngine();
 
-    // System initialization
-    bool init(const char* canvasId, int width, int height, const std::string& markerPath);
-    
-    // Start the main Emscripten loop
-    void run();
+  // System initialization
+  bool init(const char *canvasId, int width, int height,
+            const std::string &markerPath);
 
-    // Methods to be implemented in the developer's derived class
-    virtual void setup(Engine* engine, Scene* scene) = 0;
-    virtual void update(float deltaTime) = 0;
+  // Start the main Emscripten loop
+  void run();
+
+  // Methods to be implemented in the developer's derived class
+  virtual void setup(Engine *engine, Scene *scene) = 0;
+  virtual void update(float deltaTime) = 0;
 
 protected:
-    // Filament Core
-    Engine* engine;
-    Scene* scene;
-    View* view;
-    Renderer* renderer;
-    Camera* camera;
+  // Filament Core
+  Engine *engine;
+  Scene *scene;
+  View *view;
+  Renderer *renderer;
+  Camera *camera;
 
-    // Video Background Resources
-    VertexBuffer* skyboxVb = nullptr;
-    IndexBuffer* skyboxIb = nullptr;
-    Material* videoMaterial = nullptr;
-    MaterialInstance* videoMaterialInst = nullptr;
-    Texture* videoTexture = nullptr;
-    utils::Entity skyboxQuad;
+  // Video Background Resources
+  VertexBuffer *skyboxVb = nullptr;
+  IndexBuffer *skyboxIb = nullptr;
+  Material *videoMaterial = nullptr;
+  MaterialInstance *videoMaterialInst = nullptr;
+  Texture *videoTexture = nullptr;
+  uint32_t nativeTextureId = 0;
+  utils::Entity skyboxQuad;
 
-    // NFT Data
-    float projectionMatrix[16];
-    float modelViewMatrix[16];
-    bool isTracking = false;
+  // NFT Data
+  float projectionMatrix[16];
+  float modelViewMatrix[16];
+  bool isTracking = false;
 
 private:
-    static void tick(void* arg);
-    void render();
-    void updateVideoTexture();
-    void createSkyboxQuad();
-    filament::SwapChain* swapChain = nullptr;
+  static void tick(void *arg);
+  void render();
+  void updateVideoTexture();
+  void createSkyboxQuad();
+  filament::SwapChain *swapChain = nullptr;
+  filament::backend::Platform *platform = nullptr;
+  long glContext = 0;
 };
 
 #endif

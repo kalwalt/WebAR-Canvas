@@ -7,6 +7,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 if(EMSCRIPTEN)
     add_compile_options(-Wno-error=c++20-extensions)
     add_compile_options(-Wno-c++20-extensions)
+    add_compile_options(-fno-rtti) # Match Filament build config
     add_definitions(-DWEBGL -DEMSCRIPTEN -D__EMSCRIPTEN__)
 endif()
 
@@ -50,6 +51,7 @@ add_executable(${PROJECT_NAME} ${SOURCES})
 target_include_directories(${PROJECT_NAME} PRIVATE 
     src/
     ${FILAMENT_SOURCE_DIR}/include
+    ${FILAMENT_SOURCE_DIR}/backend/include
     ${FILAMENT_SOURCE_DIR}/libs/math/include
     ${FILAMENT_SOURCE_DIR}/libs/utils/include
     # NOTE: No bluegl include here!
