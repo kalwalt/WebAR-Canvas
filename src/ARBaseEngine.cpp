@@ -169,6 +169,19 @@ bool ARBaseEngine::init(const char *canvasId, int width, int height,
     return false;
   }
 
+  // --- STEP 3: Load NFT Marker Dataset ---
+  if (!markerPath.empty()) {
+    printf("Loading NFT marker from: %s\n", markerPath.c_str());
+    int markerId = nftTracker->loadMarker(markerPath);
+    if (markerId < 0) {
+      printf("ERROR: Failed to load NFT marker from: %s\n", markerPath.c_str());
+      return false;
+    }
+    const auto &markerData = nftTracker->getMarkerData(markerId);
+    printf("NFT Marker [%d] loaded successfully: %dx%d @ %d DPI\n",
+           markerId, markerData.width, markerData.height, markerData.dpi);
+  }
+
   // Retrieve calculated OpenGL camera frustum projection matrix
   const ARdouble *lens = nftTracker->getCameraLens();
   for (int i = 0; i < 16; ++i) {

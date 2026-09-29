@@ -45,6 +45,19 @@ public:
     int setupAR2();
     void teardown();
 
+    // Marker loading
+    int loadMarker(const std::string &datasetPathname);
+    std::vector<int> loadMarkers(const std::vector<std::string> &datasetPathnames);
+
+    // Marker accessors
+    int getMarkerCount() const { return surfaceSetCount; }
+    const NFTMarkerData& getMarkerData(int index) const;
+    const NFTMarkerState& getMarkerState(int index) const;
+    NFTMarkerState& getMarkerState(int index);
+    AR2SurfaceSetT* getSurfaceSet(int index) {
+        return (index >= 0 && index < surfaceSetCount) ? surfaceSet[index] : nullptr;
+    }
+
     // Camera frustum projection matrix (OpenGL column-major 4x4)
     const ARdouble* getCameraLens() const { return cameraLens; }
     void setProjectionPlanes(ARdouble nearP, ARdouble farP);
@@ -81,6 +94,12 @@ private:
 
     std::unordered_map<int, ARParam> cameraParams;
     int nextCameraID = 0;
+
+    // NFT Marker Data & State
+    int surfaceSetCount = 0;
+    AR2SurfaceSetT *surfaceSet[NFT_PAGES_MAX] = {nullptr};
+    std::array<NFTMarkerState, NFT_PAGES_MAX> markerStates;
+    std::vector<NFTMarkerData> markersData;
 
     std::unique_ptr<ARUint8[]> videoFrame;
     int videoFrameSize = 0;

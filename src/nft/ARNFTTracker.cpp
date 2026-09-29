@@ -113,6 +113,121 @@ int ARNFTTracker::setupAR2() {
     return 0;
 }
 
+int ARNFTTracker::loadMarker(const std::string &datasetPathname) {
+    std::vector<std::string> names = { datasetPathname };
+    auto ids = loadMarkers(names);
+    if (ids.empty()) {
+        return -1;
+    }
+    return ids[0];
+}
+
+std::vector<int> ARNFTTracker::loadMarkers(const std::vector<std::string> &datasetPathnames) {
+    if (!this->kpmHandle) {
+        ARLOGe("loadMarkers(): kpmHandle is null! Call setupAR2() before loading markers.\n");
+        return {};
+    }
+
+    if (datasetPathnames.size() > static_cast<size_t>(NFT_PAGES_MAX - this->surfaceSetCount)) {
+        ARLOGe("loadMarkers(): Exceeded maximum allowed markers (%d).\n", NFT_PAGES_MAX);
+        return {};
+    }
+
+    KpmRefDataSet *refDataSet = nullptr;
+    std::vector<int> markerIds;
+
+    for (size_t i = 0; i < datasetPathnames.size(); ++i) {
+        const std::string &path = datasetPathnames[i];
+        int pageNo = this->surfaceSetCount + i;
+        ARLOGi("Loading NFT marker [%d] from '%s'...\n", pageNo, path.c_str());
+
+        // 1. Load KPM dataset (.fset3)
+        KpmRefDataSet *refDataSet2 = nullptr;
+        ARLOGi("Reading KPM dataset: %s.fset3\n", path.c_str());
+        if (kpmLoadRefDataSet(path.c_str(), "fset3", &refDataSet2) < 0) {
+            ARLOGe("Error reading KPM dataset from %s.fset3\n", path.c_str());
+            if (refDataSet) kpmDeleteRefDataSet(&refDataSet);
+            return {};
+        }
+
+        if (kpmChangePageNoOfRefDataSet(refDataSet2, KpmChangePageNoAllPages, pageNo) < 0) {
+            ARLOGe("Error in kpmChangePageNoOfRefDataSet for page %d\n", pageNo);
+            kpmDeleteRefDataSet(&refDataSet2);
+            if (refDataSet) kpmDeleteRefDataSet(&refDataSet);
+            return {};
+        }
+
+        if (kpmMergeRefDataSet(&refDataSet, &refDataSet2) < 0) {
+            ARLOGe("Error in kpmMergeRefDataSet for page %d\n", pageNo);
+            if (refDataSet) kpmDeleteRefDataSet(&refDataSet);
+            return {};
+        }
+
+        // 2. Load AR2 surface set (.fset and .iset)
+        ARLOGi("Reading AR2 surface set: %s.fset\n", path.c_str());
+        int slot = this->surfaceSetCount + i;
+        this->surfaceSet[slot] = ar2ReadSurfaceSet(path.c_str(), "fset", nullptr);
+        if (this->surfaceSet[slot] == nullptr) {
+            ARLOGe("Error reading AR2 surface set from %s.fset\n", path.c_str());
+            if (refDataSet) kpmDeleteRefDataSet(&refDataSet);
+            return {};
+        }
+
+        // 3. Extract marker metadata
+        NFTMarkerData data;
+        data.id = pageNo;
+        if (this->surfaceSet[slot]->surface && this->surfaceSet[slot]->surface[0].imageSet) {
+            auto *imgSet = this->surfaceSet[slot]->surface[0].imageSet;
+            if (imgSet->scale && imgSet->scale[0]) {
+                data.width = imgSet->scale[0]->xsize;
+                data.height = imgSet->scale[0]->ysize;
+                data.dpi = imgSet->scale[0]->dpi;
+            }
+        }
+        this->markersData.push_back(data);
+        this->markerStates[slot] = NFTMarkerState{};
+        markerIds.push_back(pageNo);
+
+        ARLOGi("NFT marker [%d] loaded successfully: resolution=%dx%d, dpi=%d\n",
+               data.id, data.width, data.height, data.dpi);
+    }
+
+    // 4. Bind merged reference dataset to KPM handle
+    if (kpmSetRefDataSet(this->kpmHandle, refDataSet) < 0) {
+        ARLOGe("Error binding refDataSet to KPM handle via kpmSetRefDataSet\n");
+        kpmDeleteRefDataSet(&refDataSet);
+        return {};
+    }
+    kpmDeleteRefDataSet(&refDataSet);
+
+    this->surfaceSetCount += markerIds.size();
+    ARLOGi("All NFT markers loaded. Total active markers: %d\n", this->surfaceSetCount);
+    return markerIds;
+}
+
+const NFTMarkerData& ARNFTTracker::getMarkerData(int index) const {
+    static const NFTMarkerData emptyData;
+    if (index >= 0 && index < static_cast<int>(markersData.size())) {
+        return markersData[index];
+    }
+    return emptyData;
+}
+
+const NFTMarkerState& ARNFTTracker::getMarkerState(int index) const {
+    static const NFTMarkerState emptyState;
+    if (index >= 0 && index < surfaceSetCount) {
+        return markerStates[index];
+    }
+    return emptyState;
+}
+
+NFTMarkerState& ARNFTTracker::getMarkerState(int index) {
+    if (index >= 0 && index < surfaceSetCount) {
+        return markerStates[index];
+    }
+    return markerStates[0];
+}
+
 void ARNFTTracker::setProjectionPlanes(ARdouble nearP, ARdouble farP) {
     this->nearPlane = nearP;
     this->farPlane = farP;
@@ -154,6 +269,20 @@ void ARNFTTracker::teardown() {
     videoFrame.reset();
     videoLuma.reset();
     videoFrameSize = 0;
+
+    for (int i = 0; i < surfaceSetCount; ++i) {
+        if (surfaceSet[i]) {
+            ar2FreeSurfaceSet(&surfaceSet[i]);
+            surfaceSet[i] = nullptr;
+        }
+        if (markerStates[i].ftmi) {
+            arFilterTransMatFinal(markerStates[i].ftmi);
+            markerStates[i].ftmi = nullptr;
+        }
+    }
+    surfaceSetCount = 0;
+    markersData.clear();
+
     deleteHandles();
 }
 
