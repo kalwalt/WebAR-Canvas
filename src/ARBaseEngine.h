@@ -18,6 +18,9 @@
 
 #include <string>
 #include <vector>
+#include <memory>
+
+class ARNFTTracker;
 
 namespace filament {
 namespace backend {
@@ -60,9 +63,10 @@ protected:
   uint32_t nativeTextureId = 0;
   utils::Entity skyboxQuad;
 
-  // NFT Data
-  float projectionMatrix[16];
-  float modelViewMatrix[16];
+  // NFT Tracker & Data
+  std::unique_ptr<ARNFTTracker> nftTracker;
+  float projectionMatrix[16] = {0};
+  float modelViewMatrix[16] = {0};
   bool isTracking = false;
 
 private:

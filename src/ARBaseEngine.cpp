@@ -1,4 +1,5 @@
 #include "ARBaseEngine.h"
+#include "nft/ARNFTTracker.h"
 #include <GLES3/gl3.h>
 #include <backend/Platform.h>
 #include <backend/platforms/PlatformWebGL.h>
@@ -57,6 +58,9 @@ EM_JS(void, update_webgl_texture, (int textureId), {
 ARBaseEngine::ARBaseEngine() : engine(nullptr), renderer(nullptr) {}
 
 ARBaseEngine::~ARBaseEngine() {
+  if (nftTracker) {
+    nftTracker->teardown();
+  }
   engine->destroy(renderer);
   engine->destroy(swapChain);
   engine->destroy(scene);
@@ -146,10 +150,49 @@ bool ARBaseEngine::init(const char *canvasId, int width, int height,
   view->setCamera(camera);
   view->setPostProcessingEnabled(false); // Keep disabled for now to start safe
 
-  const float aspect = (float)width / height;
-  camera->setProjection(Camera::Projection::ORTHO, -1.0, 1.0, -1.0, 1.0, 0.0,
-                        10.0);
-  camera->lookAt({0, 0, 1}, {0, 0, 0}, {0, 1, 0});
+  // --- STEP 2: Initialize NFT Subsystem (Setup & setCamera) ---
+  printf("Initializing ARNFTTracker...\n");
+  nftTracker = std::make_unique<ARNFTTracker>();
+  int cameraID = nftTracker->loadCamera("/assets/camera_para.dat");
+  if (cameraID < 0) {
+    printf("ERROR: Failed to load camera parameter file /assets/camera_para.dat\n");
+    return false;
+  }
+
+  if (nftTracker->setup(width, height, cameraID) < 0) {
+    printf("ERROR: Failed to setup ARNFTTracker with cameraID %d\n", cameraID);
+    return false;
+  }
+
+  if (nftTracker->setupAR2() < 0) {
+    printf("ERROR: Failed to setup AR2 / KPM in ARNFTTracker\n");
+    return false;
+  }
+
+  // Retrieve calculated OpenGL camera frustum projection matrix
+  const ARdouble *lens = nftTracker->getCameraLens();
+  for (int i = 0; i < 16; ++i) {
+    projectionMatrix[i] = static_cast<float>(lens[i]);
+  }
+
+  printf("NFT Camera Frustum Projection Matrix (Column-Major):\n");
+  for (int r = 0; r < 4; ++r) {
+    printf("  [%9.4f %9.4f %9.4f %9.4f]\n",
+           projectionMatrix[0 * 4 + r],
+           projectionMatrix[1 * 4 + r],
+           projectionMatrix[2 * 4 + r],
+           projectionMatrix[3 * 4 + r]);
+  }
+
+  math::mat4 customProj;
+  for (int c = 0; c < 4; ++c) {
+    for (int r = 0; r < 4; ++r) {
+      customProj[c][r] = lens[c * 4 + r];
+    }
+  }
+  camera->setCustomProjection(customProj, nftTracker->getNearPlane(),
+                             nftTracker->getFarPlane());
+  camera->lookAt({0, 0, 0}, {0, 0, -1}, {0, 1, 0});
 
   filament::Renderer::ClearOptions clearOptions;
   clearOptions.clearColor = {0.0f, 0.0f, 1.0f, 1.0f}; // Blue

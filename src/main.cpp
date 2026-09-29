@@ -43,7 +43,7 @@ int main(int argc, char** argv) {
     // Instantiate the app
     static WebARApp app;
 
-    std::cout << "Initializing WebAR-Canvas..." << std::endl;
+    std::cout << "Initializing WebAR-Canvas with NFT..." << std::endl;
 
     // Initialize the engine (Canvas ID, Resolution, Marker)
     if (!app.init("canvas", width, height, markerPath)) {
