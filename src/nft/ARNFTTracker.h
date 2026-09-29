@@ -7,6 +7,7 @@
 #include <unordered_map>
 #include <memory>
 #include <array>
+#include <algorithm>
 
 #include <AR/ar.h>
 #include <AR/config.h>
@@ -15,6 +16,7 @@
 #include <AR/paramGL.h>
 #include <KPM/kpm.h>
 #include <WebARKit/WebARKitLog.h>
+#include <WebARKitVideoLuma.h>
 
 #include "trackingMod.h"
 #include "markerDecompress.h"
@@ -48,6 +50,35 @@ public:
     // Marker loading
     int loadMarker(const std::string &datasetPathname);
     std::vector<int> loadMarkers(const std::vector<std::string> &datasetPathnames);
+
+    // Frame ingestion & Tracking
+    ARUint8* getVideoFrame() { return videoFrame.get(); }
+    const ARUint8* getVideoFrame() const { return videoFrame.get(); }
+    int getVideoFrameSize() const { return videoFrameSize; }
+    ARUint8* getVideoLuma() { return videoLuma.get(); }
+    const ARUint8* getVideoLuma() const { return videoLuma.get(); }
+
+    void updateVideoLuma();
+    int update(); // Main tracking cycle: converts luma, detects, tracks
+    int detectNFTMarker();
+    void trackMarkers();
+
+    // Tracking state queries
+    bool isMarkerTracked(int markerIndex) const;
+    bool anyMarkerTracked() const;
+    bool allMarkersTracked() const;
+    float getTrackingError(int markerIndex) const;
+    void getTransformMatrix(int markerIndex, float m[16]) const;
+    void getPose(int markerIndex, ARdouble pose[3][4]) const;
+
+    // Tracking configuration
+    void setContinuousDetection(bool enable) { continuousDetection = enable; }
+    bool getContinuousDetection() const { return continuousDetection; }
+    void setDetectionInterval(double intervalMs) { detectionIntervalMs = intervalMs; }
+    double getDetectionInterval() const { return detectionIntervalMs; }
+    void setFiltering(bool enable) { withFiltering = enable; }
+    bool getFiltering() const { return withFiltering; }
+    void setFilterParameters(double sampleRate, double cutoffFreq);
 
     // Marker accessors
     int getMarkerCount() const { return surfaceSetCount; }
@@ -101,9 +132,19 @@ private:
     std::array<NFTMarkerState, NFT_PAGES_MAX> markerStates;
     std::vector<NFTMarkerData> markersData;
 
+    // Frame Buffers
     std::unique_ptr<ARUint8[]> videoFrame;
     int videoFrameSize = 0;
     std::unique_ptr<ARUint8[]> videoLuma;
+    webarkit::WebARKitLumaInfo *lumaInfo = nullptr;
+
+    // Detection & Tracking Parameters
+    bool continuousDetection = true;
+    double detectionIntervalMs = 200.0;
+    double lastKpmEndMs = 0.0;
+    bool withFiltering = true;
+    double filterCutoffFrequency = AR_FILTER_TRANS_MAT_CUTOFF_FREQ_DEFAULT;
+    double filterSampleRate = AR_FILTER_TRANS_MAT_SAMPLE_RATE_DEFAULT;
 };
 
 #endif // AR_NFT_TRACKER_H

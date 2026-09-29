@@ -55,6 +55,27 @@ EM_JS(void, update_webgl_texture, (int textureId), {
   }
 });
 
+// Helper JavaScript to capture CPU frame from <video> element into WASM memory
+EM_JS(int, capture_video_frame, (uint8_t *dest, int width, int height), {
+  const video = document.getElementById('ar-video');
+  if (!video || video.readyState < video.HAVE_CURRENT_DATA) {
+    return 0;
+  }
+
+  if (!Module._captureCanvas) {
+    Module._captureCanvas = document.createElement('canvas');
+    Module._captureCanvas.width = width;
+    Module._captureCanvas.height = height;
+    Module._captureCtx = Module._captureCanvas.getContext('2d', { willReadFrequently: true });
+  }
+
+  var ctx = Module._captureCtx;
+  ctx.drawImage(video, 0, 0, width, height);
+  var imgData = ctx.getImageData(0, 0, width, height);
+  HEAPU8.set(imgData.data, dest);
+  return 1;
+});
+
 ARBaseEngine::ARBaseEngine() : engine(nullptr), renderer(nullptr) {}
 
 ARBaseEngine::~ARBaseEngine() {
@@ -330,11 +351,38 @@ void ARBaseEngine::render() {
   engine->execute();
 }
 
+void ARBaseEngine::updateTracking() {
+  if (!nftTracker) return;
+
+  uint8_t *frameBuf = nftTracker->getVideoFrame();
+  int w = nftTracker->getWidth();
+  int h = nftTracker->getHeight();
+
+  if (frameBuf && capture_video_frame(frameBuf, w, h)) {
+    nftTracker->update();
+
+    if (nftTracker->getMarkerCount() > 0 && nftTracker->isMarkerTracked(0)) {
+      if (!isTracking) {
+        printf(">>> NFT Marker 0 RECOGNIZED & TRACKING! <<<\n");
+      }
+      isTracking = true;
+      nftTracker->getTransformMatrix(0, modelViewMatrix);
+    } else {
+      if (isTracking) {
+        printf(">>> NFT Marker 0 LOST! <<<\n");
+      }
+      isTracking = false;
+      std::fill(modelViewMatrix, modelViewMatrix + 16, 0.0f);
+    }
+  }
+}
+
 void ARBaseEngine::tick(void *arg) {
   auto *app = static_cast<ARBaseEngine *>(arg);
-  app->updateVideoTexture(); // Re-enable video update
-  app->update(0.016f);
-  app->render();
+  app->updateVideoTexture(); // GPU path: update WebGL video texture
+  app->updateTracking();     // CPU path: capture video frame & run NFT tracking
+  app->update(0.016f);       // Developer hook: apply transforms to 3D entities
+  app->render();             // Render Filament scene
 }
 
 void ARBaseEngine::run() {

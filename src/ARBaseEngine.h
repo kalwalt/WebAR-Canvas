@@ -69,6 +69,12 @@ protected:
   float modelViewMatrix[16] = {0};
   bool isTracking = false;
 
+  void updateTracking();
+  const float* getProjectionMatrix() const { return projectionMatrix; }
+  const float* getModelViewMatrix() const { return modelViewMatrix; }
+  bool getIsTracking() const { return isTracking; }
+  ARNFTTracker* getNFTTracker() const { return nftTracker.get(); }
+
 private:
   static void tick(void *arg);
   void render();

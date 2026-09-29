@@ -1,4 +1,5 @@
 #include "ARNFTTracker.h"
+#include <emscripten.h>
 #include <iostream>
 
 ARNFTTracker::ARNFTTracker() {
@@ -28,6 +29,12 @@ int ARNFTTracker::setup(int w, int h, int cameraID) {
     this->videoFrameSize = w * h * 4 * sizeof(ARUint8);
     this->videoFrame = std::make_unique<ARUint8[]>(this->videoFrameSize);
     this->videoLuma = std::make_unique<ARUint8[]>(w * h);
+
+    if (lumaInfo) {
+        webarkit::webarkitVideoLumaFinal(&lumaInfo);
+        lumaInfo = nullptr;
+    }
+    lumaInfo = webarkit::webarkitVideoLumaInit(w, h, true);
 
     if (setCamera(cameraID) < 0) {
         ARLOGe("setup(): setCamera failed for cameraID %d\n", cameraID);
@@ -205,6 +212,189 @@ std::vector<int> ARNFTTracker::loadMarkers(const std::vector<std::string> &datas
     return markerIds;
 }
 
+void ARNFTTracker::updateVideoLuma() {
+    if (lumaInfo && videoFrame && videoLuma) {
+        uint8_t *out = webarkit::webarkitVideoLuma(lumaInfo, videoFrame.get());
+        if (out) {
+            std::copy(out, out + (width * height), videoLuma.get());
+        }
+    }
+}
+
+int ARNFTTracker::update() {
+    updateVideoLuma();
+    detectNFTMarker();
+    return anyMarkerTracked() ? 1 : 0;
+}
+
+int ARNFTTracker::detectNFTMarker() {
+    if (surfaceSetCount <= 0 || !kpmHandle) {
+        return -1;
+    }
+
+    KpmResult *kpmResult = nullptr;
+    int kpmResultNum = -1;
+
+    const double now = emscripten_get_now();
+    const bool detectionDue = !anyMarkerTracked() ||
+        (this->continuousDetection && (now - this->lastKpmEndMs >= this->detectionIntervalMs));
+
+    if (!allMarkersTracked() && detectionDue) {
+        int skipPages[NFT_PAGES_MAX];
+        int skipNum = 0;
+        for (int i = 0; i < this->surfaceSetCount; ++i) {
+            if (markerStates[i].tracking) {
+                skipPages[skipNum++] = i;
+            }
+        }
+        if (skipNum > 0) {
+            kpmSetMatchingSkipPage(this->kpmHandle, skipPages, skipNum);
+        }
+
+        kpmMatching(this->kpmHandle, this->videoLuma.get());
+        kpmGetResult(this->kpmHandle, &kpmResult, &kpmResultNum);
+        this->lastKpmEndMs = emscripten_get_now();
+
+        for (int i = 0; i < kpmResultNum; ++i) {
+            if (kpmResult[i].camPoseF != 0) continue;
+            const int page = kpmResult[i].pageNo;
+            if (page < 0 || page >= this->surfaceSetCount) continue;
+
+            NFTMarkerState &state = markerStates[page];
+            if (state.tracking) continue;
+
+            ar2SetInitTrans(this->surfaceSet[page], kpmResult[i].camPose);
+            state.tracking = true;
+            state.filterNeedsReset = true;
+            ARLOGi("KPM recognized marker page %d!\n", page);
+        }
+    }
+
+    trackMarkers();
+    return kpmResultNum;
+}
+
+void ARNFTTracker::trackMarkers() {
+    if (!this->ar2Handle) return;
+
+    for (int page = 0; page < this->surfaceSetCount; ++page) {
+        NFTMarkerState &state = markerStates[page];
+        if (!state.tracking) continue;
+
+        float trans[3][4];
+        float err = -1.0f;
+        const int trackResult = ar2TrackingMod(this->ar2Handle, this->surfaceSet[page],
+                                               this->videoFrame.get(), trans, &err);
+        if (trackResult < 0) {
+            ARLOGi("Tracking lost on marker page %d (code %d)\n", page, trackResult);
+            state.tracking = false;
+            state.err = -1.0f;
+            continue;
+        }
+
+        for (int r = 0; r < 3; ++r) {
+            for (int c = 0; c < 4; ++c) {
+                state.pose[r][c] = static_cast<ARdouble>(trans[r][c]);
+            }
+        }
+
+        if (withFiltering) {
+            if (!state.ftmi) {
+                state.ftmi = arFilterTransMatInit(this->filterSampleRate, this->filterCutoffFrequency);
+                state.filterNeedsReset = true;
+            }
+            if (arFilterTransMat(state.ftmi, state.pose, state.filterNeedsReset ? 1 : 0) < 0) {
+                ARLOGe("arFilterTransMat error on marker %d\n", page);
+            }
+            state.filterNeedsReset = false;
+        }
+        state.err = err;
+    }
+}
+
+bool ARNFTTracker::isMarkerTracked(int markerIndex) const {
+    if (markerIndex >= 0 && markerIndex < surfaceSetCount) {
+        return markerStates[markerIndex].tracking;
+    }
+    return false;
+}
+
+bool ARNFTTracker::anyMarkerTracked() const {
+    for (int i = 0; i < surfaceSetCount; ++i) {
+        if (markerStates[i].tracking) return true;
+    }
+    return false;
+}
+
+bool ARNFTTracker::allMarkersTracked() const {
+    if (surfaceSetCount == 0) return false;
+    for (int i = 0; i < surfaceSetCount; ++i) {
+        if (!markerStates[i].tracking) return false;
+    }
+    return true;
+}
+
+float ARNFTTracker::getTrackingError(int markerIndex) const {
+    if (markerIndex >= 0 && markerIndex < surfaceSetCount) {
+        return markerStates[markerIndex].err;
+    }
+    return -1.0f;
+}
+
+void ARNFTTracker::getPose(int markerIndex, ARdouble pose[3][4]) const {
+    if (markerIndex >= 0 && markerIndex < surfaceSetCount && markerStates[markerIndex].tracking) {
+        for (int r = 0; r < 3; ++r) {
+            for (int c = 0; c < 4; ++c) {
+                pose[r][c] = markerStates[markerIndex].pose[r][c];
+            }
+        }
+    } else {
+        for (int r = 0; r < 3; ++r) {
+            for (int c = 0; c < 4; ++c) {
+                pose[r][c] = 0.0;
+            }
+        }
+    }
+}
+
+void ARNFTTracker::getTransformMatrix(int markerIndex, float m[16]) const {
+    if (markerIndex < 0 || markerIndex >= surfaceSetCount || !markerStates[markerIndex].tracking) {
+        std::fill(m, m + 16, 0.0f);
+        return;
+    }
+    const auto &pose = markerStates[markerIndex].pose;
+    // Column 0
+    m[0]  = static_cast<float>(pose[0][0]);
+    m[1]  = static_cast<float>(pose[1][0]);
+    m[2]  = static_cast<float>(pose[2][0]);
+    m[3]  = 0.0f;
+    // Column 1
+    m[4]  = static_cast<float>(pose[0][1]);
+    m[5]  = static_cast<float>(pose[1][1]);
+    m[6]  = static_cast<float>(pose[2][1]);
+    m[7]  = 0.0f;
+    // Column 2
+    m[8]  = static_cast<float>(pose[0][2]);
+    m[9]  = static_cast<float>(pose[1][2]);
+    m[10] = static_cast<float>(pose[2][2]);
+    m[11] = 0.0f;
+    // Column 3
+    m[12] = static_cast<float>(pose[0][3]);
+    m[13] = static_cast<float>(pose[1][3]);
+    m[14] = static_cast<float>(pose[2][3]);
+    m[15] = 1.0f;
+}
+
+void ARNFTTracker::setFilterParameters(double sampleRate, double cutoffFreq) {
+    this->filterSampleRate = sampleRate;
+    this->filterCutoffFrequency = cutoffFreq;
+    for (int i = 0; i < surfaceSetCount; ++i) {
+        if (markerStates[i].ftmi) {
+            arFilterTransMatSetParams(markerStates[i].ftmi, sampleRate, cutoffFreq);
+        }
+    }
+}
+
 const NFTMarkerData& ARNFTTracker::getMarkerData(int index) const {
     static const NFTMarkerData emptyData;
     if (index >= 0 && index < static_cast<int>(markersData.size())) {
@@ -269,6 +459,11 @@ void ARNFTTracker::teardown() {
     videoFrame.reset();
     videoLuma.reset();
     videoFrameSize = 0;
+
+    if (lumaInfo) {
+        webarkit::webarkitVideoLumaFinal(&lumaInfo);
+        lumaInfo = nullptr;
+    }
 
     for (int i = 0; i < surfaceSetCount; ++i) {
         if (surfaceSet[i]) {

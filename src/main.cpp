@@ -25,8 +25,11 @@ public:
     // Update logic (called every frame)
     void update(float deltaTime) override {
         if (isTracking) {
-            // If the marker is tracked, update the position of 3D objects
-            // applying the modelViewMatrix calculated by the NFT core
+            static int trackLogCount = 0;
+            if (trackLogCount++ % 60 == 0) {
+                printf("[WebARApp] Tracking active! Pose Translation: [%.2f, %.2f, %.2f]\n",
+                       modelViewMatrix[12], modelViewMatrix[13], modelViewMatrix[14]);
+            }
         }
     }
 };
