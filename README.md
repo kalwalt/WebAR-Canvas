@@ -1,164 +1,253 @@
 # WebAR-Canvas
-**WebAR-Canvas** is a high-performance, "C++ first" Augmented Reality framework for the web. This project extends the capabilities of @webarkit/jsartoolkitNFT by moving the rendering logic and application lifecycle management directly into C++ using **Google Filament** and **WebAssembly (Emscripten)**.
 
-The goal is to provide developers with a native-like development environment (OpenGL/C++), minimizing JavaScript overhead and maximizing visual fidelity through Physically Based Rendering (PBR).
+<p align="center">
+  <img src="https://raw.githubusercontent.com/kalwalt/WebAR-Canvas/dev/assets/pinball.jpg" alt="WebAR-Canvas Banner" width="280" />
+</p>
+
+<p align="center">
+  <strong>High-performance, pure C++ Augmented Reality framework for the Web</strong><br />
+  Powered by <strong>Google Filament</strong> (PBR Rendering) and <strong>WebARKitLib</strong> (Natural Feature Tracking).
+</p>
+
+<p align="center">
+  <a href="https://en.cppreference.com/w/cpp/17"><img src="https://img.shields.io/badge/C%2B%2B-17-00599C?logo=c%2B%2B" alt="C++17" /></a>
+  <a href="https://webassembly.org/"><img src="https://img.shields.io/badge/WebAssembly-WASM-654FF0?logo=webassembly&logoColor=white" alt="WebAssembly" /></a>
+  <a href="https://emscripten.org/"><img src="https://img.shields.io/badge/Emscripten-4.0.17-orange" alt="Emscripten 4.0.17" /></a>
+  <a href="https://github.com/google/filament"><img src="https://img.shields.io/badge/Renderer-Google_Filament-4285F4?logo=google" alt="Google Filament" /></a>
+  <a href="https://www.khronos.org/webgl/"><img src="https://img.shields.io/badge/WebGL-2.0-990000?logo=webgl&logoColor=white" alt="WebGL 2.0" /></a>
+  <a href="https://www.gnu.org/licenses/lgpl-3.0"><img src="https://img.shields.io/badge/License-LGPL_v3-blue.svg" alt="License: LGPL v3" /></a>
+  <a href="https://github.com/kalwalt/WebAR-Canvas/pulls"><img src="https://img.shields.io/badge/PRs-welcome-brightgreen.svg" alt="PRs Welcome" /></a>
+</p>
+
+---
+
+## 🌟 Overview
+
+**WebAR-Canvas** is a "C++ first" Augmented Reality engine compiled directly to WebAssembly. Unlike traditional web AR solutions where computer vision tracking runs in WASM while rendering runs across a JavaScript bridge (e.g. Three.js / Babylon.js), **WebAR-Canvas executes the entire tracking, matrix mathematics, scene graph, and rendering pipeline inside native C++**.
+
+By running Google Filament and WebARKitLib side-by-side in native code, WebAR-Canvas eliminates bridge serialization overhead, minimizes garbage collection pauses, and delivers high-performance 6-DOF tracking with Physically Based Rendering (PBR).
+
+---
 
 ## 🚀 Key Features
-- **C++17 Core**: Full application lifecycle managed in C++.
 
-- **PBR Rendering**: Native integration with Google Filament for high-end visual quality.
+- **Pure C++ Architecture**: Zero Embind overhead inside the engine core. Matrices, tracking states, and application lifecycle are handled directly in native C++.
+- **Google Filament WebGL 2**: Modern Physically Based Rendering (PBR) engine managing camera projection, lights, materials, and scene graph.
+- **Natural Feature Tracking (NFT)**: Native integration of WebARKitLib (AR, AR2, KPM / FreakMatcher), supporting planar image markers without QR codes or black borders.
+- **Dual Video Pipeline**:
+  - **GPU Path**: Streams webcam frames directly to a WebGL texture rendered on an unlit full-screen quad in normalized device coordinates (`vertexDomain: device`).
+  - **CPU Path**: Fast RGBA frame capture and persistent grayscale luminance conversion (`WebARKitVideoLuma`) for point matching and template tracking.
+- **Precise Coordinate Alignment**: ARToolKit calibration intrinsics (`camera_para.dat`) compute an exact right-handed OpenGL frustum (`arglCameraFrustumRH`) hooked directly into Filament's `camera->setCustomProjection()`, aligned with marker poses converted via `arglCameraViewRH`.
+- **Responsive 1:1 Viewport**: Auto-resizing WebGL drawing buffer and CSS `object-fit: contain` preserve exact 4:3 camera proportions across any screen size.
+- **Cross-Platform Toolchain**: Containerized compilation using Docker (`build-docker.js`) for seamless builds on Windows, Linux, and macOS.
 
-- **Standalone NFT**: Powered by the Natural Feature Tracking (NFT) core of jsartoolkitNFT.
+---
 
-- **Zero-Latency Background**: Webcam stream management via WebGL External Textures.
+## 🏛 Architecture
 
-- **Asset Bundling**: Compiled markers and materials are embedded directly into the .wasm binary.
-
-## 🛠 Project Structure
-- src/: C++ source code (ARBaseEngine, main).
-- 
-materials/: Source shaders for Filament (.mat).
-
-- assets/: NFT Markers and 3D models.
-
-- third_party/: External submodules (Filament).
-
-- shell.html: HTML5 template for Emscripten, webcam permissions, and UI.
-
-## 📦 Prerequisites
-Before building, ensure you have the following installed:
-
-1. **Emscripten SDK (emsdk)**: Installed and activated in your terminal.
-
-2. **CMake 3.19+**.
-
-3. **Python 3**: Required for Filament build scripts.
-
-4. **Native C++ Build Tools**: (gcc, clang, or MSVC) required to build host-side tools.
-
-## ⚙️ Build Instructions
-Filament uses a "hybrid" build system: you must build the host version first to get the asset compilers, then cross-compile the project for WebAssembly.
-
-### 1. Clone the repository and submodules
 ```
-// Bash
+                  ┌───────────────────────────────────────────────┐
+                  │              HTML5 <video> Stream             │
+                  └───────────────┬───────────────────────────────┘
+                                  │
+                  ┌───────────────┴───────────────┐
+                  ▼                               ▼
+       [ GPU Rendering Path ]           [ CPU Tracking Path ]
+    update_webgl_texture()           capture_video_frame()
+                  │                               │
+                  ▼                               ▼
+        Native WebGL Texture            RGBA Frame Buffer
+                  │                               │
+                  ▼                               ▼
+    Filament External Texture        WebARKitVideoLuma (Grayscale)
+                  │                               │
+                  ▼                               ▼
+    Fullscreen Background Quad       KPM Point Feature Recognition
+       (vertexDomain: device)                     │
+                  │                               ▼
+                  │                  AR2 Surface Template Tracking
+                  │                               │
+                  │                               ▼
+                  │                  arFilterTransMat (Low-Pass Filter)
+                  │                               │
+                  ▼                               ▼
+            Filament Scene  ◄───────────  modelViewMatrix (Pose)
+                  │
+                  ▼
+         Renderer::render()
+```
+
+---
+
+## 📁 Directory Structure
+
+```
+WebAR-Canvas/
+├── assets/                     # Embedded runtime assets
+│   ├── camera_para.dat         # Camera intrinsic calibration file
+│   ├── pinball.fset            # AR2 multi-resolution surface template dataset
+│   ├── pinball.fset3           # KPM FREAK point feature descriptor dataset
+│   ├── pinball.iset            # Compressed multi-scale image pyramid dataset
+│   └── pinball.jpg             # Reference marker image for testing
+├── materials/                  # Filament source shaders (.mat)
+│   ├── video_background.mat    # Fullscreen device-domain video quad shader
+│   └── ar_cube.mat             # Unlit vertex-colored 3D entity shader
+├── src/                        # Native C++ source code
+│   ├── ARBaseEngine.h/.cpp     # Core engine: WebGL context, dual pipeline, main loop
+│   ├── main.cpp                # WebARApp application entry point & 3D AR scene
+│   ├── shell.html              # Emscripten HTML shell template
+│   └── nft/                    # Native C++ NFT tracking subsystem
+│       ├── ARNFTTracker.h/.cpp # C++ tracker interface (camera, handles, tracking loop)
+│       ├── trackingMod.h/.c    # Cooperative AR2 frame tracking
+│       ├── trackingMod2d.c     # 2D template tracking routines
+│       ├── markerDecompress.h/.c # Marker decompression (.zft)
+│       └── NFTMarkerState.h    # Per-marker tracking state struct
+├── third_party/
+│   ├── filament/               # Google Filament submodule
+│   └── WebARKitLib/            # WebARKitLib submodule (AR, AR2, ARICP, KPM)
+├── build-wasm/                 # Compiled output directory (HTML, JS, WASM)
+├── build-docker.js             # Cross-platform Node.js build runner for Docker
+├── CMakeLists.txt              # CMake build definition
+└── AGENTS.md                   # Canonical development rules & instructions
+```
+
+---
+
+## ⚙️ Prerequisites & Setup
+
+### 1. Clone Repository & Submodules
+```bash
 git clone --recursive https://github.com/kalwalt/WebAR-Canvas.git
 cd WebAR-Canvas
-
-```
-### 2. Host Build (Desktop Tools)
-Before building the WASM engine, you must compile the Filament host tools (matc, resgen, cmgen) as they are required to process shaders and assets during the cross-compilation.
-
-**Prerequisites**: CMake 3.22+, Clang 15+, and Ninja.
-
-```
-Bash
-# Navigate to the Filament third-party directory
-cd third_party/filament
-mkdir -p out/host && cd out/host
-
-# Configure with Clang (Required for Filament)
-CC=clang-15 CXX=clang++-15 cmake ../.. \
-    -G Ninja \
-    -DCMAKE_BUILD_TYPE=Release \
-    -DCMAKE_CXX_FLAGS="-std=c++17" \
-    -DFILAMENT_SUPPORTS_OPENGL=ON \
-    -DFILAMENT_SKIP_SAMPLES=ON \
-    -DFILAMENT_SKIP_SDL2=ON
-
-# Build the required tools
-ninja matc resgen cmgen
-
-```
-Note the path to the matc binary; you will need it for the main CMake configuration.
-
-### 3. Project Build (WebAssembly)
-Once the host tools are ready, use the Emscripten Docker container to build the final library. This command includes a "path-bridge" to handle absolute paths generated by the build system.
-
-Run this with Docker (Windows) with WSL:
-Build wiyth Unix Makefiles:
-
-```
-docker run --rm -v "${PWD}:/src" -u 0:0 emscripten/emsdk:4.0.17 sh -c "
-  mkdir -p /mnt/c/Users/perda/kalwalt-github/Wasm_AR_Engine/third_party/filament/out/ && \
-  rm -rf /mnt/c/Users/perda/kalwalt-github/Wasm_AR_Engine/third_party/filament/out/host && \
-  ln -s /src/third_party/filament/out/host /mnt/c/Users/perda/kalwalt-github/Wasm_AR_Engine/third_party/filament/out/host && \
-  chmod -R +x /src/third_party/filament/out/host/tools/ && \
-  sed -i 's/add_subdirectory(libs\/bluegl)/# add_subdirectory(libs\/bluegl)/g' /src/third_party/filament/CMakeLists.txt && \
-  rm -rf /src/build-wasm && mkdir -p /src/build-wasm && cd /src/build-wasm && \
-  emcmake cmake -G 'Unix Makefiles' .. \
-    -DWEBGL=1 \
-    -DCMAKE_BUILD_TYPE=Release \
-    -DCMAKE_SYSTEM_NAME=Emscripten \
-    -DMATC_EXEC=/src/third_party/filament/out/host/tools/matc/matc && \
-  emmake make"
 ```
 
-Build with Ninja:
-
-```
-docker run --rm -v "${PWD}:/src" -u 0:0 emscripten/emsdk:4.0.17 sh -c "
-  apt-get update && apt-get install -y ninja-build && \
-  mkdir -p /mnt/c/Users/perda/kalwalt-github/Wasm_AR_Engine/third_party/filament/out/ && \
-  rm -rf /mnt/c/Users/perda/kalwalt-github/Wasm_AR_Engine/third_party/filament/out/host && \
-  ln -s /src/third_party/filament/out/host /mnt/c/Users/perda/kalwalt-github/Wasm_AR_Engine/third_party/filament/out/host && \
-  chmod -R +x /src/third_party/filament/out/host/tools/ && \
-  sed -i 's/add_subdirectory(libs\/bluegl)/# add_subdirectory(libs\/bluegl)/g' /src/third_party/filament/CMakeLists.txt && \
-  rm -rf /src/build-wasm && mkdir -p /src/build-wasm && cd /src/build-wasm && \
-  emcmake cmake -G 'Ninja' .. \
-    -DWEBGL=1 \
-    -DCMAKE_BUILD_TYPE=Release \
-    -DCMAKE_SYSTEM_NAME=Emscripten \
-    -DMATC_EXEC=/src/third_party/filament/out/host/tools/matc/matc && \
-  ninja -j8"
+If you previously cloned without `--recursive`:
+```bash
+git submodule update --init --recursive
 ```
 
-docker run --rm -v "${PWD}:/src" -u 0:0 emscripten/emsdk:4.0.17 sh -c "
-  mkdir -p /mnt/c/Users/perda/kalwalt-github/Wasm_AR_Engine/third_party/filament/out/ && \
-  rm -rf /mnt/c/Users/perda/kalwalt-github/Wasm_AR_Engine/third_party/filament/out/host && \
-  ln -s /src/third_party/filament/out/host /mnt/c/Users/perda/kalwalt-github/Wasm_AR_Engine/third_party/filament/out/host && \
-  chmod -R +x /src/third_party/filament/out/host/tools/ && \
-  sed -i 's/add_subdirectory(libs\/bluegl)/# add_subdirectory(libs\/bluegl)/g' /src/third_party/filament/CMakeLists.txt && \
- mkdir -p /src/build-wasm && cd /src/build-wasm && \
-  emcmake cmake -G 'Unix Makefiles' .. \
-    -DWEBGL=1 \
-    -DCMAKE_BUILD_TYPE=Release \
-    -DCMAKE_SYSTEM_NAME=Emscripten \
-    -DMATC_EXEC=/src/third_party/filament/out/host/tools/matc/matc && \
-  emmake make"
+### 2. Docker & Node.js
+Building WebAR-Canvas requires:
+- **Docker Desktop** (or Docker engine on Linux).
+- **Node.js** (v16+).
 
+---
+
+## 🔨 Building the Project
+
+The WebAssembly build environment is containerized in `emscripten/emsdk:4.0.17`. Use the included cross-platform build runner:
+
+```bash
+# Standard incremental build
+node build-docker.js
+
+# Parallel compilation with custom job count (e.g. 8 jobs)
+node build-docker.js -j 8
+
+# Full clean rebuild
+node build-docker.js --clean
+```
 
 ### Build Artifacts
-Upon successful completion, the following files will be generated in build-wasm/:
+Upon completion, the following artifacts are generated in `build-wasm/`:
+- `videoTest.html`: The ready-to-run HTML shell.
+- `videoTest.js`: Emscripten JavaScript runtime glue.
+- `videoTest.wasm`: The compiled native C++ engine binary.
 
-- **WebAR-Canvas.js**: The JavaScript glue code.
+---
 
-- **WebAR-Canvas.wasm**: The compiled C++ engine (Filament + jsartoolkitNFT)
-## 🖥 Execution
-To test the project locally, a web server is required (due to security policies for webcam access and WASM files):
+## 🖥 Running & Testing
 
+Due to browser security policies regarding webcam access (`getUserMedia`) and WebAssembly modules, files must be served over HTTP/HTTPS:
+
+### 1. Start Local HTTP Server
+```bash
+python -m http.server 8000 --directory build-wasm
 ```
-Bash
-# Example using Python
-python3 -m http.server 8000
-```
-Open your browser at http://localhost:8000/WebAR-Canvas.html.
+*(or use Node `npx serve build-wasm`)*
 
-## 🎨 Basic Usage
-To create your AR experience, simply inherit from ARBaseEngine:
+### 2. Open in Browser
+Open `http://localhost:8000/videoTest.html` in Chrome, Edge, or Firefox.
 
-```C++
-class MyArtPiece : public ARBaseEngine {
+### 3. Test with the Pinball Marker
+1. Display or print the reference marker image located at [`assets/pinball.jpg`](assets/pinball.jpg).
+2. Point your camera at the marker.
+3. When recognized:
+   - Console logs will report: `>>> NFT Marker 0 RECOGNIZED & TRACKING! <<<`.
+   - An 80mm multi-colored 3D cube will appear anchored to the center of the marker, standing on the paper and spinning in real-time AR.
+
+---
+
+## 🎨 Developing Your Own AR Application
+
+To build a custom AR experience, inherit from `ARBaseEngine` and implement `setup()` and `update()`:
+
+```cpp
+#include "ARBaseEngine.h"
+#include <filament/TransformManager.h>
+
+class CustomARApp : public ARBaseEngine {
+public:
     void setup(Engine* engine, Scene* scene) override {
-        // Load .glb models or setup PBR lights here
+        // 1. Create renderable entities (e.g. glTF models, custom meshes, lights)
+        // 2. Add entities to scene
+        // 3. Register with TransformManager
     }
-    
+
     void update(float deltaTime) override {
         if (isTracking) {
-            // Apply custom logic when the marker is found
+            // Retrieve current column-major modelViewMatrix
+            math::mat4f pose;
+            for (int c = 0; c < 4; ++c) {
+                for (int r = 0; r < 4; ++r) {
+                    pose[c][r] = modelViewMatrix[c * 4 + r];
+                }
+            }
+
+            // Apply pose matrix to entity transforms
+            auto& tcm = engine->getTransformManager();
+            auto inst = tcm.getInstance(myEntity);
+            tcm.setTransform(inst, pose);
+        } else {
+            // Hide or freeze entities when tracking is lost
         }
     }
 };
+
+int main(int argc, char** argv) {
+    static CustomARApp app;
+    if (!app.init("canvas", 640, 480, "/assets/markers/pinball")) {
+        return 1;
+    }
+    app.run();
+    return 0;
+}
 ```
+
+---
+
+## 🌿 Git & Contribution Guidelines
+
+- **Branching Strategy**:
+  - **Every new branch must branch off `dev`**, never `master`.
+  - **Every pull request must target `dev`**.
+  - `master` is strictly reserved for tagged, stable releases.
+- **Commit Messages**: Follow [Conventional Commits](https://www.conventionalcommits.org/):
+  ```
+  <type>(<scope>): <short summary>
+
+  - Detailed bullet point 1
+  - Detailed bullet point 2
+  ```
+  Allowed types: `feat`, `fix`, `perf`, `doc`, `refactor`, `test`, `style`, `chore`.
+
+---
+
 ## 📄 License
-Distributed under the GPL-3.0 License. See LICENSE for more information.
+
+This project is licensed under the **GNU Lesser General Public License v3.0** (LGPL-3.0) with a static-linking exception — see the [LICENSE](LICENSE) file for details.
+
+### Third-Party Licenses & Acknowledgements
+- **[Google Filament](https://github.com/google/filament)**: Apache 2.0 License.
+- **[WebARKitLib](https://github.com/webarkit/WebARKitLib)** / **[jsartoolkitNFT](https://github.com/webarkit/jsartoolkitNFT)**: LGPL-3.0 / GPL-3.0 License.
+- **[ARToolKit](https://github.com/artoolkitx/artoolkit5)**: GPL-3.0 License.
