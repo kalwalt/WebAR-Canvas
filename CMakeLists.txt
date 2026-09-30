@@ -45,6 +45,17 @@ add_custom_command(
     COMMENT "Compiling Filament material: video_background.mat"
 )
 
+set(CUBE_MATERIAL_INPUT ${CMAKE_CURRENT_SOURCE_DIR}/materials/ar_cube.mat)
+set(CUBE_MATERIAL_OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/assets/ar_cube.fil)
+
+add_custom_command(
+    OUTPUT ${CUBE_MATERIAL_OUTPUT}
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_CURRENT_BINARY_DIR}/assets
+    COMMAND ${MATC_EXEC} -p mobile -o ${CUBE_MATERIAL_OUTPUT} ${CUBE_MATERIAL_INPUT}
+    DEPENDS ${CUBE_MATERIAL_INPUT}
+    COMMENT "Compiling Filament material: ar_cube.mat"
+)
+
 # --- WebARKitLib Sources ---
 file(GLOB AR_SOURCES
     ${WEBARKITLIB_DIR}/lib/SRC/AR/*.c
@@ -142,7 +153,7 @@ target_compile_options(WebARKitNFT PUBLIC
     "-Wno-return-type-c-linkage"
 )
 
-set(SOURCES src/main.cpp src/ARBaseEngine.cpp ${MATERIAL_OUTPUT})
+set(SOURCES src/main.cpp src/ARBaseEngine.cpp ${MATERIAL_OUTPUT} ${CUBE_MATERIAL_OUTPUT})
 add_executable(${PROJECT_NAME} ${SOURCES})
 
 # --- Include Directories ---
@@ -188,6 +199,7 @@ target_link_options(${PROJECT_NAME} PRIVATE
     "-sEXPORTED_RUNTIME_METHODS=['GL','UTF8ToString']"
     "--shell-file=${CMAKE_CURRENT_SOURCE_DIR}/src/shell.html"
     "--embed-file=${MATERIAL_OUTPUT}@/assets/video_background.fil"
+    "--embed-file=${CUBE_MATERIAL_OUTPUT}@/assets/ar_cube.fil"
     "--embed-file=${CMAKE_CURRENT_SOURCE_DIR}/assets/camera_para.dat@/assets/camera_para.dat"
     "--embed-file=${CMAKE_CURRENT_SOURCE_DIR}/assets/pinball.fset@/assets/markers/pinball.fset"
     "--embed-file=${CMAKE_CURRENT_SOURCE_DIR}/assets/pinball.fset3@/assets/markers/pinball.fset3"

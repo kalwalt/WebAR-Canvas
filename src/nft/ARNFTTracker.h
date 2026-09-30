@@ -110,8 +110,8 @@ private:
 
     int width = 0;
     int height = 0;
-    ARdouble nearPlane = 0.1;
-    ARdouble farPlane = 1000.0;
+    ARdouble nearPlane = 10.0;
+    ARdouble farPlane = 5000.0;
     ARdouble cameraLens[16] = {0};
 
     AR_PIXEL_FORMAT pixFormat = AR_PIXEL_FORMAT_RGBA;

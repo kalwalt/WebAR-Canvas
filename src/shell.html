@@ -4,17 +4,42 @@
     <meta charset="utf-8">
     <title>WebAR-Canvas | Filament NFT</title>
     <style>
-        body { margin: 0; background-color: black; overflow: hidden; }
-        /* The canvas must fill everything and be block to avoid scrollbars */
-        #canvas { width: 100vw; height: 100vh; display: block; outline: none; }
-        /* Hidden video: only used as a texture source */
-        #ar-video { display: none; }
+        html, body {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            background-color: black;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        /* The canvas preserves its aspect ratio and fits completely inside the window */
+        #canvas {
+            width: 100vw;
+            height: 100vh;
+            object-fit: contain;
+            display: block;
+            outline: none;
+        }
+        /* Offscreen video element: kept in layout for continuous WebGL frame decoding */
+        #ar-video {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 1px;
+            height: 1px;
+            opacity: 0;
+            pointer-events: none;
+            z-index: -1;
+        }
     </style>
 </head>
 <body>
-    <canvas id="canvas" oncontextmenu="event.preventDefault()"></canvas>
+    <canvas id="canvas" width="640" height="480" oncontextmenu="event.preventDefault()"></canvas>
     
-    <video id="ar-video" autoplay playsinline></video>
+    <video id="ar-video" autoplay playsinline muted></video>
 
     <script type='text/javascript'>
         var Module = {
@@ -68,8 +93,9 @@
                 const stream = await navigator.mediaDevices.getUserMedia({ 
                     video: { 
                         facingMode: "environment",
-                        width: { ideal: 1280 }, // Suggest a resolution
-                        height: { ideal: 720 } 
+                        width: { ideal: 640 },
+                        height: { ideal: 480 },
+                        aspectRatio: { ideal: 4 / 3 }
                     }, 
                     audio: false 
                 });

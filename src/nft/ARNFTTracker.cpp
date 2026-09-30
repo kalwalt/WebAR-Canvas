@@ -362,27 +362,11 @@ void ARNFTTracker::getTransformMatrix(int markerIndex, float m[16]) const {
         std::fill(m, m + 16, 0.0f);
         return;
     }
-    const auto &pose = markerStates[markerIndex].pose;
-    // Column 0
-    m[0]  = static_cast<float>(pose[0][0]);
-    m[1]  = static_cast<float>(pose[1][0]);
-    m[2]  = static_cast<float>(pose[2][0]);
-    m[3]  = 0.0f;
-    // Column 1
-    m[4]  = static_cast<float>(pose[0][1]);
-    m[5]  = static_cast<float>(pose[1][1]);
-    m[6]  = static_cast<float>(pose[2][1]);
-    m[7]  = 0.0f;
-    // Column 2
-    m[8]  = static_cast<float>(pose[0][2]);
-    m[9]  = static_cast<float>(pose[1][2]);
-    m[10] = static_cast<float>(pose[2][2]);
-    m[11] = 0.0f;
-    // Column 3
-    m[12] = static_cast<float>(pose[0][3]);
-    m[13] = static_cast<float>(pose[1][3]);
-    m[14] = static_cast<float>(pose[2][3]);
-    m[15] = 1.0f;
+    ARdouble glPose[16];
+    arglCameraViewRH(markerStates[markerIndex].pose, glPose, 1.0);
+    for (int i = 0; i < 16; ++i) {
+        m[i] = static_cast<float>(glPose[i]);
+    }
 }
 
 void ARNFTTracker::setFilterParameters(double sampleRate, double cutoffFreq) {

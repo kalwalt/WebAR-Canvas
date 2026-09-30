@@ -45,6 +45,7 @@ EM_JS(void, update_webgl_texture, (int textureId), {
 
     gl.bindTexture(gl.TEXTURE_2D, glTexture);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, gl.RGB, gl.UNSIGNED_BYTE, video);
+    gl.bindTexture(gl.TEXTURE_2D, null);
     // Optional: verify error
     const err = gl.getError();
     if (err != 0) {
@@ -125,6 +126,8 @@ bool ARBaseEngine::init(const char *canvasId, int width, int height,
   attr.alpha = false;
   attr.preserveDrawingBuffer = false;
   attr.failIfMajorPerformanceCaveat = false;
+
+  emscripten_set_canvas_element_size("#canvas", width, height);
 
   EMSCRIPTEN_WEBGL_CONTEXT_HANDLE ctx =
       emscripten_webgl_create_context("#canvas", &attr);
@@ -229,7 +232,7 @@ bool ARBaseEngine::init(const char *canvasId, int width, int height,
   camera->lookAt({0, 0, 0}, {0, 0, -1}, {0, 1, 0});
 
   filament::Renderer::ClearOptions clearOptions;
-  clearOptions.clearColor = {0.0f, 0.0f, 1.0f, 1.0f}; // Blue
+  clearOptions.clearColor = {0.0f, 0.0f, 0.0f, 1.0f}; // Black
   clearOptions.clear = true;
   renderer->setClearOptions(clearOptions);
 
@@ -280,25 +283,25 @@ bool ARBaseEngine::init(const char *canvasId, int width, int height,
 
 void ARBaseEngine::createSkyboxQuad() {
   struct Vertex {
-    math::float2 position;
+    math::float4 position;
     math::float2 uv;
   };
   static const Vertex VERTICES[4] = {
-      {{-1, -1}, {0, 0}},
-      {{1, -1}, {1, 0}},
-      {{-1, 1}, {0, 1}},
-      {{1, 1}, {1, 1}}}; // Corrected to standard quad
+      {{-1.0f, -1.0f, 1.0f, 1.0f}, {0.0f, 0.0f}},
+      {{ 1.0f, -1.0f, 1.0f, 1.0f}, {1.0f, 0.0f}},
+      {{-1.0f,  1.0f, 1.0f, 1.0f}, {0.0f, 1.0f}},
+      {{ 1.0f,  1.0f, 1.0f, 1.0f}, {1.0f, 1.0f}}};
   static const uint16_t INDICES[6] = {0, 1, 2,
-                                      2, 1, 3}; // Standard quad indices
+                                      2, 1, 3};
 
   skyboxVb =
       VertexBuffer::Builder()
           .vertexCount(4)
           .bufferCount(1)
           .attribute(VertexAttribute::POSITION, 0,
-                     VertexBuffer::AttributeType::FLOAT2, 0, sizeof(Vertex))
+                     VertexBuffer::AttributeType::FLOAT4, 0, sizeof(Vertex))
           .attribute(VertexAttribute::UV0, 0,
-                     VertexBuffer::AttributeType::FLOAT2, sizeof(math::float2),
+                     VertexBuffer::AttributeType::FLOAT2, sizeof(math::float4),
                      sizeof(Vertex))
           .build(*engine);
   skyboxVb->setBufferAt(
@@ -312,11 +315,15 @@ void ARBaseEngine::createSkyboxQuad() {
                       IndexBuffer::BufferDescriptor(INDICES, sizeof(INDICES)));
   skyboxQuad = utils::EntityManager::get().create();
   RenderableManager::Builder(1)
-      .boundingBox({{0, 0, 0}, {1, 1, 1}})
+      .boundingBox({{-1.0f, -1.0f, -1.0f}, {1.0f, 1.0f, 1.0f}})
       .material(0, videoMaterialInst)
       .geometry(0, RenderableManager::PrimitiveType::TRIANGLES, skyboxVb,
                 skyboxIb)
-      .culling(false) // Essential for the background
+      .culling(false)
+      .priority(0)
+      .channel(0)
+      .receiveShadows(false)
+      .castShadows(false)
       .build(*engine, skyboxQuad);
 
   scene->addEntity(skyboxQuad);
