@@ -97,14 +97,10 @@ WebAR-Canvas/
 │   ├── main.cpp                # WebARApp application entry point & 3D AR scene
 │   ├── shell.html              # Emscripten HTML shell template
 │   └── nft/                    # Native C++ NFT tracking subsystem
-│       ├── ARNFTTracker.h/.cpp # C++ tracker interface (camera, handles, tracking loop)
-│       ├── trackingMod.h/.c    # Cooperative AR2 frame tracking
-│       ├── trackingMod2d.c     # 2D template tracking routines
-│       ├── markerDecompress.h/.c # Marker decompression (.zft)
-│       └── NFTMarkerState.h    # Per-marker tracking state struct
+│       └── ARNFTTracker.h/.cpp # C++ tracker interface (camera, handles, tracking loop)
 ├── third_party/
 │   ├── filament/               # Google Filament submodule
-│   └── WebARKitLib/            # WebARKitLib submodule (AR, AR2, ARICP, KPM)
+│   └── WebARKitLib/            # WebARKitLib submodule (AR, AR2, ARICP, KPM, WebARKitNFT helpers)
 ├── build-wasm/                 # Compiled output directory (HTML, JS, WASM)
 ├── build-docker.js             # Cross-platform Node.js build runner for Docker
 ├── CMakeLists.txt              # CMake build definition

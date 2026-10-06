@@ -49,14 +49,10 @@ Wasm_AR_Engine/
 │   ├── shell.html           # Emscripten HTML shell template
 │   └── nft/                 # Native C++ NFT tracking subsystem
 │       ├── ARNFTTracker.h   # C++ NFT tracker interface
-│       ├── ARNFTTracker.cpp # C++ NFT tracker implementation (loadCamera, setup, setupAR2)
-│       ├── trackingMod.h/.c # Web-optimized cooperative AR2 tracking
-│       ├── trackingMod2d.c  # 2D template tracking routines
-│       ├── markerDecompress.h/.c # Marker decompression (.zft)
-│       └── NFTMarkerState.h # Tracking state struct per marker
+│       └── ARNFTTracker.cpp # C++ NFT tracker implementation (loadCamera, setup, setupAR2)
 ├── third_party/
 │   ├── filament/            # Google Filament submodule
-│   └── WebARKitLib/         # WebARKitLib submodule (AR, AR2, ARICP, ARUtil, KPM)
+│   └── WebARKitLib/         # WebARKitLib submodule (AR, AR2, ARICP, ARUtil, KPM, WebARKitNFT: trackingMod, markerDecompress, NFTMarkerState)
 ├── build-wasm/              # Build directory containing compiled WASM, JS, and HTML
 ├── build-docker.js          # Cross-platform Node.js build runner for Docker (Windows & Linux)
 ├── CMakeLists.txt           # Main CMake project build definition

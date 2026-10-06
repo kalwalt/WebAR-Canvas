@@ -8,7 +8,7 @@ if(EMSCRIPTEN)
     add_compile_options(-Wno-error=c++20-extensions)
     add_compile_options(-Wno-c++20-extensions)
     add_compile_options(-fno-rtti) # Match Filament build config
-    add_definitions(-DWEBGL -DEMSCRIPTEN -D__EMSCRIPTEN__ -DHAVE_NFT=1)
+    add_definitions(-DWEBGL -DEMSCRIPTEN -D__EMSCRIPTEN__)
 endif()
 
 set(FILAMENT_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third_party/filament)
@@ -56,99 +56,26 @@ add_custom_command(
     COMMENT "Compiling Filament material: ar_cube.mat"
 )
 
-# --- WebARKitLib Sources ---
-file(GLOB AR_SOURCES
-    ${WEBARKITLIB_DIR}/lib/SRC/AR/*.c
-    ${WEBARKITLIB_DIR}/lib/SRC/AR/arLabelingSub/*.c
-)
-
-file(GLOB ARICP_SOURCES
-    ${WEBARKITLIB_DIR}/lib/SRC/ARICP/*.c
-)
-
-set(ARUTIL_SOURCES
-    ${WEBARKITLIB_DIR}/lib/SRC/ARUtil/log.c
-    ${WEBARKITLIB_DIR}/lib/SRC/ARUtil/file_utils.c
-)
-
-set(AR2_SOURCES
-    ${WEBARKITLIB_DIR}/lib/SRC/AR2/coord.c
-    ${WEBARKITLIB_DIR}/lib/SRC/AR2/featureMap.c
-    ${WEBARKITLIB_DIR}/lib/SRC/AR2/featureSet.c
-    ${WEBARKITLIB_DIR}/lib/SRC/AR2/handle.c
-    ${WEBARKITLIB_DIR}/lib/SRC/AR2/imageSet.c
-    ${WEBARKITLIB_DIR}/lib/SRC/AR2/jpeg.c
-    ${WEBARKITLIB_DIR}/lib/SRC/AR2/marker.c
-    ${WEBARKITLIB_DIR}/lib/SRC/AR2/matching.c
-    ${WEBARKITLIB_DIR}/lib/SRC/AR2/matching2.c
-    ${WEBARKITLIB_DIR}/lib/SRC/AR2/searchPoint.c
-    ${WEBARKITLIB_DIR}/lib/SRC/AR2/selectTemplate.c
-    ${WEBARKITLIB_DIR}/lib/SRC/AR2/surface.c
-    ${WEBARKITLIB_DIR}/lib/SRC/AR2/template.c
-    ${WEBARKITLIB_DIR}/lib/SRC/AR2/tracking.c
-    ${WEBARKITLIB_DIR}/lib/SRC/AR2/tracking2d.c
-    ${WEBARKITLIB_DIR}/lib/SRC/AR2/util.c
-)
-
-set(KPM_SOURCES
-    ${WEBARKITLIB_DIR}/lib/SRC/KPM/kpmHandle.cpp
-    ${WEBARKITLIB_DIR}/lib/SRC/KPM/kpmRefDataSet.cpp
-    ${WEBARKITLIB_DIR}/lib/SRC/KPM/kpmMatching.cpp
-    ${WEBARKITLIB_DIR}/lib/SRC/KPM/kpmResult.cpp
-    ${WEBARKITLIB_DIR}/lib/SRC/KPM/kpmUtil.cpp
-    ${WEBARKITLIB_DIR}/lib/SRC/KPM/kpmFopen.c
-    ${WEBARKITLIB_DIR}/lib/SRC/KPM/FreakMatcher/detectors/DoG_scale_invariant_detector.cpp
-    ${WEBARKITLIB_DIR}/lib/SRC/KPM/FreakMatcher/detectors/gaussian_scale_space_pyramid.cpp
-    ${WEBARKITLIB_DIR}/lib/SRC/KPM/FreakMatcher/detectors/gradients.cpp
-    ${WEBARKITLIB_DIR}/lib/SRC/KPM/FreakMatcher/detectors/orientation_assignment.cpp
-    ${WEBARKITLIB_DIR}/lib/SRC/KPM/FreakMatcher/detectors/pyramid.cpp
-    ${WEBARKITLIB_DIR}/lib/SRC/KPM/FreakMatcher/facade/visual_database_facade.cpp
-    ${WEBARKITLIB_DIR}/lib/SRC/KPM/FreakMatcher/matchers/hough_similarity_voting.cpp
-    ${WEBARKITLIB_DIR}/lib/SRC/KPM/FreakMatcher/matchers/freak.cpp
-    ${WEBARKITLIB_DIR}/lib/SRC/KPM/FreakMatcher/framework/date_time.cpp
-    ${WEBARKITLIB_DIR}/lib/SRC/KPM/FreakMatcher/framework/image.cpp
-    ${WEBARKITLIB_DIR}/lib/SRC/KPM/FreakMatcher/framework/logger.cpp
-    ${WEBARKITLIB_DIR}/lib/SRC/KPM/FreakMatcher/framework/timers.cpp
-)
+# --- WebARKitLib NFT (AR, ARICP, AR2, KPM, ARUtil + trackingMod/markerDecompress) ---
+# Only the NFT subdirectory is added, so no OpenCV is fetched.
+set(WEBARKIT_NFT_THREADS OFF CACHE BOOL "" FORCE)
+add_subdirectory(${WEBARKITLIB_DIR}/WebARKit/WebARKitTrackers/WebARKitNFT ${CMAKE_CURRENT_BINARY_DIR}/webarkitnft_build)
 
 set(WEBARKIT_EXTRA_SOURCES
     ${WEBARKITLIB_DIR}/lib/SRC/WebARKit/WebARKitLog.cpp
     ${WEBARKITLIB_DIR}/WebARKit/WebARKitVideoLuma.cpp
 )
 
-set(NFT_CUSTOM_SOURCES
-    src/nft/trackingMod.c
-    src/nft/trackingMod2d.c
-    src/nft/markerDecompress.c
-    src/nft/ARNFTTracker.cpp
-)
+add_library(ARNFTTracker STATIC src/nft/ARNFTTracker.cpp ${WEBARKIT_EXTRA_SOURCES})
 
-set(WEBARKIT_NFT_SOURCES
-    ${AR_SOURCES}
-    ${ARICP_SOURCES}
-    ${ARUTIL_SOURCES}
-    ${AR2_SOURCES}
-    ${KPM_SOURCES}
-    ${WEBARKIT_EXTRA_SOURCES}
-    ${NFT_CUSTOM_SOURCES}
-)
-
-add_library(WebARKitNFT STATIC ${WEBARKIT_NFT_SOURCES})
-
-target_include_directories(WebARKitNFT PUBLIC
-    ${WEBARKITLIB_DIR}/include
+target_include_directories(ARNFTTracker PUBLIC
     ${WEBARKITLIB_DIR}/WebARKit/include
-    ${WEBARKITLIB_DIR}/lib/SRC/KPM/FreakMatcher
     ${CMAKE_CURRENT_SOURCE_DIR}/src/nft
 )
 
-target_compile_definitions(WebARKitNFT PUBLIC
-    HAVE_NFT=1
-)
+target_link_libraries(ARNFTTracker PUBLIC WebARKitNFT)
 
-target_compile_options(WebARKitNFT PUBLIC
-    "-sUSE_ZLIB=1"
-    "-sUSE_LIBJPEG=1"
+target_compile_options(ARNFTTracker PUBLIC
     "-Wno-warn-absolute-paths"
     "-Wno-return-type-c-linkage"
 )
@@ -164,9 +91,6 @@ target_include_directories(${PROJECT_NAME} PRIVATE
     ${FILAMENT_SOURCE_DIR}/backend/include
     ${FILAMENT_SOURCE_DIR}/libs/math/include
     ${FILAMENT_SOURCE_DIR}/libs/utils/include
-    ${WEBARKITLIB_DIR}/include
-    ${WEBARKITLIB_DIR}/WebARKit/include
-    ${WEBARKITLIB_DIR}/lib/SRC/KPM/FreakMatcher
 )
 
 # --- LINKING ---
@@ -178,7 +102,7 @@ target_link_libraries(${PROJECT_NAME} PUBLIC
     utils
     ibl
     geometry
-    WebARKitNFT
+    ARNFTTracker
 )
 
 set_target_properties(${PROJECT_NAME} PROPERTIES OUTPUT_NAME "videoTest")
@@ -207,4 +131,4 @@ target_link_options(${PROJECT_NAME} PRIVATE
     "-g"
 )
 
-add_dependencies(${PROJECT_NAME} filament WebARKitNFT)
+add_dependencies(${PROJECT_NAME} filament ARNFTTracker)
