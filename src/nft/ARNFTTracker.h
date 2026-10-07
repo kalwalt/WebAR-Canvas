@@ -18,9 +18,9 @@
 #include <WebARKit/WebARKitLog.h>
 #include <WebARKitVideoLuma.h>
 
-#include "trackingMod.h"
-#include "markerDecompress.h"
-#include "NFTMarkerState.h"
+#include <WebARKitTrackers/WebARKitNFT/trackingMod.h>
+#include <WebARKitTrackers/WebARKitNFT/markerDecompress.h>
+#include <WebARKitTrackers/WebARKitNFT/NFTMarkerState.h>
 
 constexpr int NFT_PAGES_MAX = 20;
 
