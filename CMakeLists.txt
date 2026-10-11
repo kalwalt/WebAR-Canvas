@@ -1,5 +1,6 @@
 cmake_minimum_required(VERSION 3.19)
-project(WebAR-Canvas)
+# The release version: bump it here (and in CHANGELOG.md) for every release.
+project(WebAR-Canvas VERSION 0.2.0)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -80,6 +81,13 @@ target_compile_options(ARNFTTracker PUBLIC
     "-Wno-return-type-c-linkage"
 )
 
+# --- Version header (WEBAR_CANVAS_VERSION_*), generated from project(VERSION) ---
+configure_file(
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/WebARCanvasVersion.h.in
+    ${CMAKE_CURRENT_BINARY_DIR}/generated/WebARCanvasVersion.h
+    @ONLY
+)
+
 set(SOURCES src/main.cpp src/ARBaseEngine.cpp ${MATERIAL_OUTPUT} ${CUBE_MATERIAL_OUTPUT})
 add_executable(${PROJECT_NAME} ${SOURCES})
 
@@ -87,6 +95,7 @@ add_executable(${PROJECT_NAME} ${SOURCES})
 target_include_directories(${PROJECT_NAME} PRIVATE 
     src/
     src/nft/
+    ${CMAKE_CURRENT_BINARY_DIR}/generated
     ${FILAMENT_SOURCE_DIR}/include
     ${FILAMENT_SOURCE_DIR}/backend/include
     ${FILAMENT_SOURCE_DIR}/libs/math/include
