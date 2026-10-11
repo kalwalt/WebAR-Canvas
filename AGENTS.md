@@ -97,6 +97,10 @@ git checkout dev && git pull origin dev
 git checkout -b your-branch-name
 ```
 
+### Releases
+- Versions follow [Semantic Versioning](https://semver.org/). The version lives in `project(WebAR-Canvas VERSION x.y.z)` in `CMakeLists.txt`; CMake generates `WebARCanvasVersion.h` (`WEBAR_CANVAS_VERSION_*`) and the engine prints it at startup.
+- To release: on a branch from `dev`, bump the version and add its section to `CHANGELOG.md` (`chore: bump version to x.y.z`) and merge it into `dev`; then open a PR from `dev` to `master`, merge it with a merge commit, and tag `vx.y.z` on `master`.
+
 ### Commit Messages
 Follow [Conventional Commits](https://www.conventionalcommits.org/):
 ```
