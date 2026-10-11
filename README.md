@@ -228,6 +228,7 @@ int main(int argc, char** argv) {
   - **Every new branch must branch off `dev`**, never `master`.
   - **Every pull request must target `dev`**.
   - `master` is strictly reserved for tagged, stable releases.
+- **Releases**: versions follow [Semantic Versioning](https://semver.org/) and are set by `project(VERSION)` in `CMakeLists.txt`; see [CHANGELOG.md](CHANGELOG.md).
 - **Commit Messages**: Follow [Conventional Commits](https://www.conventionalcommits.org/):
   ```
   <type>(<scope>): <short summary>

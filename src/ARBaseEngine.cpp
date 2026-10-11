@@ -1,4 +1,5 @@
 #include "ARBaseEngine.h"
+#include "WebARCanvasVersion.h"
 #include "nft/ARNFTTracker.h"
 #include <GLES3/gl3.h>
 #include <backend/Platform.h>
@@ -113,6 +114,8 @@ public:
 
 bool ARBaseEngine::init(const char *canvasId, int width, int height,
                         const std::string &markerPath) {
+  printf("WebAR-Canvas v%s\n", WEBAR_CANVAS_VERSION_STRING);
+
   // --- STEP 1: Manual configuration of the WebGL context ---
   EmscriptenWebGLContextAttributes attr;
   emscripten_webgl_init_context_attributes(&attr);
