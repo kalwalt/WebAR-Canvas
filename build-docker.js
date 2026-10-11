@@ -49,16 +49,17 @@ if (isClean) {
   }
 }
 
-// Build shell commands executed inside the container
+// Build shell commands executed inside the container.
+// The host tools and the WASM build run the same scripts as the CI (.github/workflows/build.yml).
+// The path bridge keeps host tools built outside the container (e.g. in WSL) usable:
+// their ImportExecutables file refers to the host path.
 const containerCommands = [
   'apt-get update && apt-get install -y ninja-build',
   `mkdir -p "${bridgePath}/third_party/filament/out/"`,
   `rm -rf "${bridgePath}/third_party/filament/out/host"`,
   `ln -s /src/third_party/filament/out/host "${bridgePath}/third_party/filament/out/host"`,
-  'chmod -R +x /src/third_party/filament/out/host/tools/',
-  'mkdir -p /src/build-wasm && cd /src/build-wasm',
-  'emcmake cmake -G Ninja .. -DWEBGL=1 -DCMAKE_BUILD_TYPE=Release -DCMAKE_SYSTEM_NAME=Emscripten -DMATC_EXEC=/src/third_party/filament/out/host/tools/matc/matc',
-  `ninja -j${jobs} WebAR-Canvas`
+  'sh /src/scripts/build-host-tools.sh',
+  `sh /src/scripts/build-wasm.sh ${jobs}`
 ].join(' && ');
 
 const dockerArgs = [

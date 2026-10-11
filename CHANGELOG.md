@@ -6,6 +6,19 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The version is set by
 `project(WebAR-Canvas VERSION ...)` in `CMakeLists.txt`.
 
+## [Unreleased]
+
+### Added
+
+- CI: a GitHub Actions workflow builds the WebAssembly app on every pull request and push to
+  `dev` and `master`, and uploads `videoTest.{html,js,wasm}` as an artifact (#9).
+- `scripts/build-host-tools.sh` and `scripts/build-wasm.sh`, shared by CI and `build-docker.js`.
+
+### Fixed
+
+- `build-docker.js` failed on a fresh clone because the Filament host tools were missing: it
+  now builds them on the first run (#6).
+
 ## [0.2.0] - 2026-10-11
 
 ### Added
@@ -46,5 +59,6 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - CMake build for WebAssembly, with Filament materials compiled by `matc` and embedded in the
   binary.
 
+[Unreleased]: https://github.com/kalwalt/WebAR-Canvas/compare/v0.2.0...HEAD
 [0.2.0]: https://github.com/kalwalt/WebAR-Canvas/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/kalwalt/WebAR-Canvas/releases/tag/v0.1.0

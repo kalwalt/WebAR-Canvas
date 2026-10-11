@@ -77,6 +77,12 @@ node build-docker.js -j 8
 node build-docker.js --clean
 ```
 
+`build-docker.js` runs two scripts inside the container, the same ones the CI runs (`.github/workflows/build.yml`):
+- `scripts/build-host-tools.sh`: builds the Filament host tools (`matc`, `resgen`, `cmgen`, `glslminifier`) in `third_party/filament/out/host` with emsdk's clang, once; it skips them when already built.
+- `scripts/build-wasm.sh`: configures and builds the `WebAR-Canvas` target into `build-wasm/`.
+
+Keep `*.sh` files with LF line endings (`.gitattributes`): they run in Linux containers.
+
 ### Key CMake & Linker Requirements
 - **Web Ports**: Emscripten port dependencies `-sUSE_ZLIB=1` and `-sUSE_LIBJPEG=1` must be provided in both compile and link options.
 - **Embedded Files**: In `CMakeLists.txt`, always format `--embed-file` with an equal sign (`--embed-file=<src>@<dst>`) to prevent CMake from splitting the flag and its destination path during linking.
