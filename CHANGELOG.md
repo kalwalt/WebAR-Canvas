@@ -27,6 +27,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   `ARToolKitNFTCore` (WebARKitLib PR #94); its own code drops from ~480 to ~170 lines. Same
   settings as before: filtering on, 200 ms detection interval, projection planes 10 / 5000 (#11).
 - `ARNFTTracker::getMarkerData()` returns `NFTMarkerData` by value.
+- `ARNFTTracker::setup()` called again checks the camera with `setCamera()` and tears the
+  tracker down when it fails, instead of reporting success with the previous camera.
+- `ARNFTTracker::update()` keeps ARToolKit's log at WARN while the core runs: the core logs every
+  tracked frame at INFO ("Tracked page ...").
 
 ### Removed
 

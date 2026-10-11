@@ -20,9 +20,15 @@ int ARNFTTracker::loadCamera(const std::string &cparamName) {
 }
 
 int ARNFTTracker::setup(int w, int h, int cameraID) {
+    // On a later setup() the core keeps the previous paramLT when the camera fails, so
+    // cameraParamLT() proves nothing there: check setCamera() instead (ARToolKitNFTCore.h).
+    const bool reSetup = core.cameraParamLT() != nullptr;
     this->coreId = core.setup(w, h, cameraID);
-    if (core.cameraParamLT() == nullptr) {
+    const bool cameraApplied = reSetup ? core.setCamera(this->coreId, cameraID) == 0
+                                       : core.cameraParamLT() != nullptr;
+    if (!cameraApplied) {
         ARLOGe("setup(): camera %d could not be applied\n", cameraID);
+        teardown();
         return -1;
     }
 
@@ -35,6 +41,11 @@ int ARNFTTracker::setup(int w, int h, int cameraID) {
         webarkit::webarkitVideoLumaFinal(&lumaInfo);
     }
     lumaInfo = webarkit::webarkitVideoLumaInit(w, h, true);
+    if (!lumaInfo) {
+        ARLOGe("setup(): luma conversion could not be initialized\n");
+        teardown();
+        return -1;
+    }
 
     ARLOGi("setup(): Allocated videoFrameSize %d (%dx%d RGBA)\n", this->videoFrameSize, w, h);
     return 0;
@@ -63,7 +74,12 @@ int ARNFTTracker::update() {
     }
     const ARUint8 *luma = webarkit::webarkitVideoLuma(lumaInfo, videoFrame.get());
     core.setVideoFrame(videoFrame.get(), luma);
+    // ARToolKitNFTCore logs every tracked frame at INFO ("Tracked page ..."): keep the
+    // ARToolKit log at WARN or above while it runs, so errors still show.
+    const int logLevel = arLogLevel;
+    arLogLevel = std::max(logLevel, static_cast<int>(AR_LOG_LEVEL_WARN));
     core.detectNFTMarker();
+    arLogLevel = logLevel;
     return anyMarkerTracked() ? 1 : 0;
 }
 

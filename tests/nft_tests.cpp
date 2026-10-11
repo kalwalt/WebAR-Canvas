@@ -7,6 +7,7 @@
 #include <AR2/imageFormat.h>
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 
@@ -91,6 +92,9 @@ static void keeps_dev_tracking_settings() {
   CHECK(t.setup(640, 480, cam) == 0);
   CHECK(t.getNearPlane() == 10.0 && t.getFarPlane() == 5000.0);
   CHECK(t.getCameraLens()[15] == 0.0 && t.getCameraLens()[11] < 0.0);
+  // The frustum dev prints for camera_para.dat at 640x480 with planes 10 / 5000.
+  CHECK(std::fabs(t.getCameraLens()[10] - (-1.0040)) < 1e-3);
+  CHECK(std::fabs(t.getCameraLens()[14] - (-20.0401)) < 1e-3);
   CHECK(t.getDetectionInterval() == 200.0);
   CHECK(t.getContinuousDetection() && t.getFiltering());
 }
@@ -125,6 +129,35 @@ static void loses_tracking_on_blank_frame() {
   CHECK(!t.isMarkerTracked(0));
 }
 
+static void re_setup_checks_the_camera() {
+  ARNFTTracker t;
+  const int cam = t.loadCamera("/data/camera_para.dat");
+  CHECK(t.setup(640, 480, cam) == 0);
+  CHECK(t.setup(320, 240, cam) == 0 && t.getWidth() == 320);
+  // An unknown camera on a later setup(): it fails and leaves nothing half set up.
+  CHECK(t.setup(640, 480, -1) == -1);
+  CHECK(t.getVideoFrame() == nullptr);
+  CHECK(t.update() == 0);
+}
+
+static int gTrackedLogLines = 0;
+static void countTrackedLogLines(const char *message) {
+  if (std::strstr(message, "Tracked page") != nullptr) ++gTrackedLogLines;
+}
+
+static void no_log_line_per_tracked_frame() {
+  ARNFTTracker t;
+  CHECK(trackPinball(t));
+  const int logLevel = t.getLogLevel();
+  gTrackedLogLines = 0;
+  arLogSetLogger(countTrackedLogLines, 0);
+  for (int i = 0; i < 5; i++) t.update();
+  arLogSetLogger(nullptr, 0);
+  CHECK(t.isMarkerTracked(0));
+  CHECK(gTrackedLogLines == 0);
+  CHECK(t.getLogLevel() == logLevel);
+}
+
 struct TestCase {
   const char *name;
   void (*run)();
@@ -139,6 +172,8 @@ static const TestCase kTests[] = {
     {"out_of_range_index_is_empty", out_of_range_index_is_empty},
     {"tracks_pinball_demo", tracks_pinball_demo},
     {"loses_tracking_on_blank_frame", loses_tracking_on_blank_frame},
+    {"re_setup_checks_the_camera", re_setup_checks_the_camera},
+    {"no_log_line_per_tracked_frame", no_log_line_per_tracked_frame},
 };
 
 int main() {
