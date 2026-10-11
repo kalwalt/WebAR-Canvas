@@ -1,0 +1,50 @@
+# Changelog
+
+All notable changes to WebAR-Canvas are documented in this file.
+
+The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
+[Semantic Versioning](https://semver.org/spec/v2.0.0.html). The version is set by
+`project(WebAR-Canvas VERSION ...)` in `CMakeLists.txt`.
+
+## [0.2.0] - 2026-10-11
+
+### Added
+
+- NFT (Natural Feature Tracking) of image markers with `ARNFTTracker`: camera parameters,
+  marker datasets (`.iset` / `.fset` / `.fset3`), KPM detection and AR2 tracking on RGBA frames
+  captured from the webcam (#1).
+- AR camera projection computed from the NFT camera parameters.
+- A rotating 3D cube anchored to the `pinball` marker, as the example app (`WebARApp` in
+  `src/main.cpp`).
+- `build-docker.js`: one build command for Windows, Linux and macOS, using the
+  `emscripten/emsdk:4.0.17` container.
+- Version metadata: `project(VERSION)` in CMake, a generated `WebARCanvasVersion.h`
+  (`WEBAR_CANVAS_VERSION_*`), the version printed at startup, and this changelog.
+- LGPL-3.0 `LICENSE` and agent instruction files (`AGENTS.md`, `CLAUDE.md`, `GEMINI.md`,
+  Copilot).
+
+### Changed
+
+- The video background is drawn in device space (`vertexDomain : device`), independent of the
+  AR camera projection.
+- The NFT tracking helpers (`trackingMod`, `markerDecompress`) and the ARToolKit sources (AR,
+  AR2, KPM, ARUtil) now come from the `WebARKitNFT` target of WebARKitLib 0.10.0 instead of
+  local copies (#5, closes #3).
+
+### Fixed
+
+- The webcam video was drawn upside down: `video_background.mat` flipped V a second time on top
+  of Filament's default `flipUV`.
+
+## [0.1.0] - 2026-02-20
+
+### Added
+
+- `ARBaseEngine`: the application lifecycle in C++, rendering with Google Filament on a WebGL 2
+  context created by the engine, driven by the Emscripten main loop.
+- Webcam video background through a WebGL texture imported into Filament.
+- CMake build for WebAssembly, with Filament materials compiled by `matc` and embedded in the
+  binary.
+
+[0.2.0]: https://github.com/kalwalt/WebAR-Canvas/compare/v0.1.0...v0.2.0
+[0.1.0]: https://github.com/kalwalt/WebAR-Canvas/releases/tag/v0.1.0

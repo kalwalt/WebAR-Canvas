@@ -1,3 +1,6 @@
 [submodule "third_party/filament"]
 	path = third_party/filament
 	url = https://github.com/google/filament.git
+[submodule "third_party/WebARKitLib"]
+	path = third_party/WebARKitLib
+	url = https://github.com/webarkit/WebARKitLib

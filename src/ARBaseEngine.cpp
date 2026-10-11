@@ -1,4 +1,6 @@
 #include "ARBaseEngine.h"
+#include "WebARCanvasVersion.h"
+#include "nft/ARNFTTracker.h"
 #include <GLES3/gl3.h>
 #include <backend/Platform.h>
 #include <backend/platforms/PlatformWebGL.h>
@@ -44,6 +46,7 @@ EM_JS(void, update_webgl_texture, (int textureId), {
 
     gl.bindTexture(gl.TEXTURE_2D, glTexture);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, gl.RGB, gl.UNSIGNED_BYTE, video);
+    gl.bindTexture(gl.TEXTURE_2D, null);
     // Optional: verify error
     const err = gl.getError();
     if (err != 0) {
@@ -54,9 +57,33 @@ EM_JS(void, update_webgl_texture, (int textureId), {
   }
 });
 
+// Helper JavaScript to capture CPU frame from <video> element into WASM memory
+EM_JS(int, capture_video_frame, (uint8_t *dest, int width, int height), {
+  const video = document.getElementById('ar-video');
+  if (!video || video.readyState < video.HAVE_CURRENT_DATA) {
+    return 0;
+  }
+
+  if (!Module._captureCanvas) {
+    Module._captureCanvas = document.createElement('canvas');
+    Module._captureCanvas.width = width;
+    Module._captureCanvas.height = height;
+    Module._captureCtx = Module._captureCanvas.getContext('2d', { willReadFrequently: true });
+  }
+
+  var ctx = Module._captureCtx;
+  ctx.drawImage(video, 0, 0, width, height);
+  var imgData = ctx.getImageData(0, 0, width, height);
+  HEAPU8.set(imgData.data, dest);
+  return 1;
+});
+
 ARBaseEngine::ARBaseEngine() : engine(nullptr), renderer(nullptr) {}
 
 ARBaseEngine::~ARBaseEngine() {
+  if (nftTracker) {
+    nftTracker->teardown();
+  }
   engine->destroy(renderer);
   engine->destroy(swapChain);
   engine->destroy(scene);
@@ -87,6 +114,8 @@ public:
 
 bool ARBaseEngine::init(const char *canvasId, int width, int height,
                         const std::string &markerPath) {
+  printf("WebAR-Canvas v%s\n", WEBAR_CANVAS_VERSION_STRING);
+
   // --- STEP 1: Manual configuration of the WebGL context ---
   EmscriptenWebGLContextAttributes attr;
   emscripten_webgl_init_context_attributes(&attr);
@@ -100,6 +129,8 @@ bool ARBaseEngine::init(const char *canvasId, int width, int height,
   attr.alpha = false;
   attr.preserveDrawingBuffer = false;
   attr.failIfMajorPerformanceCaveat = false;
+
+  emscripten_set_canvas_element_size("#canvas", width, height);
 
   EMSCRIPTEN_WEBGL_CONTEXT_HANDLE ctx =
       emscripten_webgl_create_context("#canvas", &attr);
@@ -146,13 +177,65 @@ bool ARBaseEngine::init(const char *canvasId, int width, int height,
   view->setCamera(camera);
   view->setPostProcessingEnabled(false); // Keep disabled for now to start safe
 
-  const float aspect = (float)width / height;
-  camera->setProjection(Camera::Projection::ORTHO, -1.0, 1.0, -1.0, 1.0, 0.0,
-                        10.0);
-  camera->lookAt({0, 0, 1}, {0, 0, 0}, {0, 1, 0});
+  // --- STEP 2: Initialize NFT Subsystem (Setup & setCamera) ---
+  printf("Initializing ARNFTTracker...\n");
+  nftTracker = std::make_unique<ARNFTTracker>();
+  int cameraID = nftTracker->loadCamera("/assets/camera_para.dat");
+  if (cameraID < 0) {
+    printf("ERROR: Failed to load camera parameter file /assets/camera_para.dat\n");
+    return false;
+  }
+
+  if (nftTracker->setup(width, height, cameraID) < 0) {
+    printf("ERROR: Failed to setup ARNFTTracker with cameraID %d\n", cameraID);
+    return false;
+  }
+
+  if (nftTracker->setupAR2() < 0) {
+    printf("ERROR: Failed to setup AR2 / KPM in ARNFTTracker\n");
+    return false;
+  }
+
+  // --- STEP 3: Load NFT Marker Dataset ---
+  if (!markerPath.empty()) {
+    printf("Loading NFT marker from: %s\n", markerPath.c_str());
+    int markerId = nftTracker->loadMarker(markerPath);
+    if (markerId < 0) {
+      printf("ERROR: Failed to load NFT marker from: %s\n", markerPath.c_str());
+      return false;
+    }
+    const auto &markerData = nftTracker->getMarkerData(markerId);
+    printf("NFT Marker [%d] loaded successfully: %dx%d @ %d DPI\n",
+           markerId, markerData.width, markerData.height, markerData.dpi);
+  }
+
+  // Retrieve calculated OpenGL camera frustum projection matrix
+  const ARdouble *lens = nftTracker->getCameraLens();
+  for (int i = 0; i < 16; ++i) {
+    projectionMatrix[i] = static_cast<float>(lens[i]);
+  }
+
+  printf("NFT Camera Frustum Projection Matrix (Column-Major):\n");
+  for (int r = 0; r < 4; ++r) {
+    printf("  [%9.4f %9.4f %9.4f %9.4f]\n",
+           projectionMatrix[0 * 4 + r],
+           projectionMatrix[1 * 4 + r],
+           projectionMatrix[2 * 4 + r],
+           projectionMatrix[3 * 4 + r]);
+  }
+
+  math::mat4 customProj;
+  for (int c = 0; c < 4; ++c) {
+    for (int r = 0; r < 4; ++r) {
+      customProj[c][r] = lens[c * 4 + r];
+    }
+  }
+  camera->setCustomProjection(customProj, nftTracker->getNearPlane(),
+                             nftTracker->getFarPlane());
+  camera->lookAt({0, 0, 0}, {0, 0, -1}, {0, 1, 0});
 
   filament::Renderer::ClearOptions clearOptions;
-  clearOptions.clearColor = {0.0f, 0.0f, 1.0f, 1.0f}; // Blue
+  clearOptions.clearColor = {0.0f, 0.0f, 0.0f, 1.0f}; // Black
   clearOptions.clear = true;
   renderer->setClearOptions(clearOptions);
 
@@ -203,25 +286,25 @@ bool ARBaseEngine::init(const char *canvasId, int width, int height,
 
 void ARBaseEngine::createSkyboxQuad() {
   struct Vertex {
-    math::float2 position;
+    math::float4 position;
     math::float2 uv;
   };
   static const Vertex VERTICES[4] = {
-      {{-1, -1}, {0, 0}},
-      {{1, -1}, {1, 0}},
-      {{-1, 1}, {0, 1}},
-      {{1, 1}, {1, 1}}}; // Corrected to standard quad
+      {{-1.0f, -1.0f, 1.0f, 1.0f}, {0.0f, 0.0f}},
+      {{ 1.0f, -1.0f, 1.0f, 1.0f}, {1.0f, 0.0f}},
+      {{-1.0f,  1.0f, 1.0f, 1.0f}, {0.0f, 1.0f}},
+      {{ 1.0f,  1.0f, 1.0f, 1.0f}, {1.0f, 1.0f}}};
   static const uint16_t INDICES[6] = {0, 1, 2,
-                                      2, 1, 3}; // Standard quad indices
+                                      2, 1, 3};
 
   skyboxVb =
       VertexBuffer::Builder()
           .vertexCount(4)
           .bufferCount(1)
           .attribute(VertexAttribute::POSITION, 0,
-                     VertexBuffer::AttributeType::FLOAT2, 0, sizeof(Vertex))
+                     VertexBuffer::AttributeType::FLOAT4, 0, sizeof(Vertex))
           .attribute(VertexAttribute::UV0, 0,
-                     VertexBuffer::AttributeType::FLOAT2, sizeof(math::float2),
+                     VertexBuffer::AttributeType::FLOAT2, sizeof(math::float4),
                      sizeof(Vertex))
           .build(*engine);
   skyboxVb->setBufferAt(
@@ -235,11 +318,15 @@ void ARBaseEngine::createSkyboxQuad() {
                       IndexBuffer::BufferDescriptor(INDICES, sizeof(INDICES)));
   skyboxQuad = utils::EntityManager::get().create();
   RenderableManager::Builder(1)
-      .boundingBox({{0, 0, 0}, {1, 1, 1}})
+      .boundingBox({{-1.0f, -1.0f, -1.0f}, {1.0f, 1.0f, 1.0f}})
       .material(0, videoMaterialInst)
       .geometry(0, RenderableManager::PrimitiveType::TRIANGLES, skyboxVb,
                 skyboxIb)
-      .culling(false) // Essential for the background
+      .culling(false)
+      .priority(0)
+      .channel(0)
+      .receiveShadows(false)
+      .castShadows(false)
       .build(*engine, skyboxQuad);
 
   scene->addEntity(skyboxQuad);
@@ -274,11 +361,38 @@ void ARBaseEngine::render() {
   engine->execute();
 }
 
+void ARBaseEngine::updateTracking() {
+  if (!nftTracker) return;
+
+  uint8_t *frameBuf = nftTracker->getVideoFrame();
+  int w = nftTracker->getWidth();
+  int h = nftTracker->getHeight();
+
+  if (frameBuf && capture_video_frame(frameBuf, w, h)) {
+    nftTracker->update();
+
+    if (nftTracker->getMarkerCount() > 0 && nftTracker->isMarkerTracked(0)) {
+      if (!isTracking) {
+        printf(">>> NFT Marker 0 RECOGNIZED & TRACKING! <<<\n");
+      }
+      isTracking = true;
+      nftTracker->getTransformMatrix(0, modelViewMatrix);
+    } else {
+      if (isTracking) {
+        printf(">>> NFT Marker 0 LOST! <<<\n");
+      }
+      isTracking = false;
+      std::fill(modelViewMatrix, modelViewMatrix + 16, 0.0f);
+    }
+  }
+}
+
 void ARBaseEngine::tick(void *arg) {
   auto *app = static_cast<ARBaseEngine *>(arg);
-  app->updateVideoTexture(); // Re-enable video update
-  app->update(0.016f);
-  app->render();
+  app->updateVideoTexture(); // GPU path: update WebGL video texture
+  app->updateTracking();     // CPU path: capture video frame & run NFT tracking
+  app->update(0.016f);       // Developer hook: apply transforms to 3D entities
+  app->render();             // Render Filament scene
 }
 
 void ARBaseEngine::run() {

@@ -1,5 +1,6 @@
 cmake_minimum_required(VERSION 3.19)
-project(WebAR-Canvas)
+# The release version: bump it here (and in CHANGELOG.md) for every release.
+project(WebAR-Canvas VERSION 0.2.0)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -12,6 +13,7 @@ if(EMSCRIPTEN)
 endif()
 
 set(FILAMENT_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third_party/filament)
+set(WEBARKITLIB_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third_party/WebARKitLib)
 
 # --- KEY CONFIGURATION ---
 # 1. DISABLE Desktop OpenGL (this removes the dependency on BlueGL which caused the error)
@@ -44,17 +46,60 @@ add_custom_command(
     COMMENT "Compiling Filament material: video_background.mat"
 )
 
-set(SOURCES src/main.cpp src/ARBaseEngine.cpp ${MATERIAL_OUTPUT})
+set(CUBE_MATERIAL_INPUT ${CMAKE_CURRENT_SOURCE_DIR}/materials/ar_cube.mat)
+set(CUBE_MATERIAL_OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/assets/ar_cube.fil)
+
+add_custom_command(
+    OUTPUT ${CUBE_MATERIAL_OUTPUT}
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_CURRENT_BINARY_DIR}/assets
+    COMMAND ${MATC_EXEC} -p mobile -o ${CUBE_MATERIAL_OUTPUT} ${CUBE_MATERIAL_INPUT}
+    DEPENDS ${CUBE_MATERIAL_INPUT}
+    COMMENT "Compiling Filament material: ar_cube.mat"
+)
+
+# --- WebARKitLib NFT (AR, ARICP, AR2, KPM, ARUtil + trackingMod/markerDecompress) ---
+# Only the NFT subdirectory is added, so no OpenCV is fetched.
+set(WEBARKIT_NFT_THREADS OFF CACHE BOOL "" FORCE)
+add_subdirectory(${WEBARKITLIB_DIR}/WebARKit/WebARKitTrackers/WebARKitNFT ${CMAKE_CURRENT_BINARY_DIR}/webarkitnft_build)
+
+set(WEBARKIT_EXTRA_SOURCES
+    ${WEBARKITLIB_DIR}/lib/SRC/WebARKit/WebARKitLog.cpp
+    ${WEBARKITLIB_DIR}/WebARKit/WebARKitVideoLuma.cpp
+)
+
+add_library(ARNFTTracker STATIC src/nft/ARNFTTracker.cpp ${WEBARKIT_EXTRA_SOURCES})
+
+target_include_directories(ARNFTTracker PUBLIC
+    ${WEBARKITLIB_DIR}/WebARKit/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/nft
+)
+
+target_link_libraries(ARNFTTracker PUBLIC WebARKitNFT)
+
+target_compile_options(ARNFTTracker PUBLIC
+    "-Wno-warn-absolute-paths"
+    "-Wno-return-type-c-linkage"
+)
+
+# --- Version header (WEBAR_CANVAS_VERSION_*), generated from project(VERSION) ---
+configure_file(
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/WebARCanvasVersion.h.in
+    ${CMAKE_CURRENT_BINARY_DIR}/generated/WebARCanvasVersion.h
+    @ONLY
+)
+
+set(SOURCES src/main.cpp src/ARBaseEngine.cpp ${MATERIAL_OUTPUT} ${CUBE_MATERIAL_OUTPUT})
 add_executable(${PROJECT_NAME} ${SOURCES})
 
 # --- Include Directories ---
 target_include_directories(${PROJECT_NAME} PRIVATE 
     src/
+    src/nft/
+    ${CMAKE_CURRENT_BINARY_DIR}/generated
     ${FILAMENT_SOURCE_DIR}/include
     ${FILAMENT_SOURCE_DIR}/backend/include
     ${FILAMENT_SOURCE_DIR}/libs/math/include
     ${FILAMENT_SOURCE_DIR}/libs/utils/include
-    # NOTE: No bluegl include here!
 )
 
 # --- LINKING ---
@@ -66,7 +111,7 @@ target_link_libraries(${PROJECT_NAME} PUBLIC
     utils
     ibl
     geometry
-    # Removed: bluegl (not needed on pure WebGL)
+    ARNFTTracker
 )
 
 set_target_properties(${PROJECT_NAME} PROPERTIES OUTPUT_NAME "videoTest")
@@ -79,14 +124,20 @@ target_link_options(${PROJECT_NAME} PRIVATE
     "-sALLOW_MEMORY_GROWTH=1"
     "-sINITIAL_MEMORY=268435456"
     "-sSTACK_SIZE=5242880"
+    "-sUSE_LIBJPEG=1"
+    "-sUSE_ZLIB=1"
     "-lhtml5"
     "-lGL" # This links the native WebGL of Emscripten
     "-sEXPORTED_FUNCTIONS=['_main']"
-    "-sEXPORTED_RUNTIME_METHODS=['GL']"
-    "--shell-file" "${CMAKE_CURRENT_SOURCE_DIR}/src/shell.html"
-    "--embed-file" "${MATERIAL_OUTPUT}@/assets/video_background.fil"
-    #"--embed-file" "${CMAKE_CURRENT_SOURCE_DIR}/assets/markers@/assets/markers"
+    "-sEXPORTED_RUNTIME_METHODS=['GL','UTF8ToString']"
+    "--shell-file=${CMAKE_CURRENT_SOURCE_DIR}/src/shell.html"
+    "--embed-file=${MATERIAL_OUTPUT}@/assets/video_background.fil"
+    "--embed-file=${CUBE_MATERIAL_OUTPUT}@/assets/ar_cube.fil"
+    "--embed-file=${CMAKE_CURRENT_SOURCE_DIR}/assets/camera_para.dat@/assets/camera_para.dat"
+    "--embed-file=${CMAKE_CURRENT_SOURCE_DIR}/assets/pinball.fset@/assets/markers/pinball.fset"
+    "--embed-file=${CMAKE_CURRENT_SOURCE_DIR}/assets/pinball.fset3@/assets/markers/pinball.fset3"
+    "--embed-file=${CMAKE_CURRENT_SOURCE_DIR}/assets/pinball.iset@/assets/markers/pinball.iset"
     "-g"
 )
 
-add_dependencies(${PROJECT_NAME} filament)
+add_dependencies(${PROJECT_NAME} filament ARNFTTracker)
