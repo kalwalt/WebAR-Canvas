@@ -29,7 +29,8 @@ set(FILAMENT_SKIP_SDL2 ON CACHE BOOL "" FORCE)
 set(WEBGL ON CACHE BOOL "Force WebGL" FORCE)
 
 # Setup MATC
-set(MATC_EXEC "/src/third_party/filament/out/host/tools/matc/matc" CACHE STRING "" FORCE)
+# Default: the host tool built by scripts/build-host-tools.sh; -DMATC_EXEC=... overrides it.
+set(MATC_EXEC "${FILAMENT_SOURCE_DIR}/out/host/tools/matc/matc" CACHE FILEPATH "Filament matc host tool")
 
 # --- Include Filament ---
 add_subdirectory(${FILAMENT_SOURCE_DIR} ${CMAKE_CURRENT_BINARY_DIR}/filament_build EXCLUDE_FROM_ALL)
