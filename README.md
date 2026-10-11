@@ -143,6 +143,9 @@ node build-docker.js -j 8
 
 # Full clean rebuild
 node build-docker.js --clean
+
+# Build, then run the NFT tracker tests with Node (no browser or webcam needed)
+node build-docker.js --test
 ```
 
 The first build also compiles the Filament host tools (`matc`, `resgen`, `cmgen`, `glslminifier`) into `third_party/filament/out/host` with `scripts/build-host-tools.sh`; this takes a while once and is skipped afterwards. The same scripts run in CI (`.github/workflows/build.yml`) on every pull request to `dev` and `master`.

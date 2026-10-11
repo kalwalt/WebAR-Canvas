@@ -17,6 +17,7 @@ const cwd = process.cwd();
 // Parse command line arguments
 const args = process.argv.slice(2);
 const isClean = args.includes('--clean');
+const runTests = args.includes('--test');
 const jobsArgIndex = args.indexOf('-j');
 let jobs = 4;
 if (jobsArgIndex !== -1 && args[jobsArgIndex + 1]) {
@@ -39,6 +40,7 @@ const bridgePath = getPathBridge(cwd);
 console.log(`[build-docker] Host directory: ${cwd}`);
 console.log(`[build-docker] Path bridge:    ${bridgePath}`);
 console.log(`[build-docker] Parallel jobs:  ${jobs}`);
+console.log(`[build-docker] Run tests:      ${runTests ? 'yes' : 'no (use --test)'}`);
 
 // Clean build directory if requested
 if (isClean) {
@@ -59,13 +61,17 @@ const containerCommands = [
   `rm -rf "${bridgePath}/third_party/filament/out/host"`,
   `ln -s /src/third_party/filament/out/host "${bridgePath}/third_party/filament/out/host"`,
   'sh /src/scripts/build-host-tools.sh',
-  `sh /src/scripts/build-wasm.sh ${jobs}`
+  `sh /src/scripts/build-wasm.sh ${jobs}`,
+  ...(runTests ? [`sh /src/scripts/test-wasm.sh ${jobs}`] : [])
 ].join(' && ');
 
 const dockerArgs = [
   'run',
   '--rm',
   '-v', `${cwd}:/src`,
+  // Keeps the Emscripten cache (sysroot, libjpeg and zlib ports) across --rm containers,
+  // so the ports are downloaded once instead of on every build.
+  '-v', `webar-canvas-emcache-4.0.17:/emsdk/upstream/emscripten/cache`,
   '-u', '0:0',
   DOCKER_IMAGE,
   'sh',

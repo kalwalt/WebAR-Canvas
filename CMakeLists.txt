@@ -64,6 +64,8 @@ set(WEBARKIT_NFT_THREADS OFF CACHE BOOL "" FORCE)
 add_subdirectory(${WEBARKITLIB_DIR}/WebARKit/WebARKitTrackers/WebARKitNFT ${CMAKE_CURRENT_BINARY_DIR}/webarkitnft_build)
 
 set(WEBARKIT_EXTRA_SOURCES
+    # The std::string logger used by WebARKitVideoLuma (<WebARKit/WebARKitLog.h>). WebARKitNFT
+    # compiles a different one, WebARKit/WebARKitLog.cpp (webarkitLog), for the tracking core.
     ${WEBARKITLIB_DIR}/lib/SRC/WebARKit/WebARKitLog.cpp
     ${WEBARKITLIB_DIR}/WebARKit/WebARKitVideoLuma.cpp
 )
@@ -142,3 +144,22 @@ target_link_options(${PROJECT_NAME} PRIVATE
 )
 
 add_dependencies(${PROJECT_NAME} filament ARNFTTracker)
+
+# --- Node test runner for ARNFTTracker (scripts/test-wasm.sh, node build-docker.js --test) ---
+option(WEBAR_CANVAS_BUILD_TESTS "Build the Node test runner (nft_tests)" OFF)
+if(WEBAR_CANVAS_BUILD_TESTS)
+    add_executable(nft_tests tests/nft_tests.cpp)
+    target_link_libraries(nft_tests PRIVATE ARNFTTracker)
+    set_target_properties(nft_tests PROPERTIES SUFFIX ".js")
+    target_link_options(nft_tests PRIVATE
+        "-sENVIRONMENT=node"
+        "-sEXIT_RUNTIME=1"
+        "-sASSERTIONS=1"
+        "-sALLOW_MEMORY_GROWTH=1"
+        "-sINITIAL_MEMORY=268435456"
+        "-sUSE_LIBJPEG=1"
+        "-sUSE_ZLIB=1"
+        # WebARKitLib's NFT fixtures: camera_para.dat, pinball.{iset,fset,fset3}, pinball-demo.jpg
+        "--embed-file=${WEBARKITLIB_DIR}/tests/data@/data"
+    )
+endif()

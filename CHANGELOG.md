@@ -13,6 +13,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - CI: a GitHub Actions workflow builds the WebAssembly app on every pull request and push to
   `dev` and `master`, and uploads `videoTest.{html,js,wasm}` as an artifact (#9).
 - `scripts/build-host-tools.sh` and `scripts/build-wasm.sh`, shared by CI and `build-docker.js`.
+- Node test runner `nft_tests` for `ARNFTTracker` (tracking `pinball-demo.jpg`, lost marker,
+  out-of-range indices, missing assets, frustum and detection settings), run by
+  `node build-docker.js --test` and in CI (#9, #11).
+
+### Changed
+
+- WebARKitLib moves to the head of webarkit/WebARKitLib#94 (`6fd0a25`), which adds
+  `ARToolKitNFTCore` (#11).
+- `build-docker.js` keeps the Emscripten cache in the `webar-canvas-emcache-4.0.17` Docker
+  volume, so the libjpeg and zlib ports are downloaded once.
 
 ### Fixed
 
