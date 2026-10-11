@@ -7,6 +7,7 @@ Read it before making changes — it is the canonical source and this file is a 
 
 - **Build WASM**: `node build-docker.js` (or `node build-docker.js -j 8`)
 - **Clean Build**: `node build-docker.js --clean`
+- **Host tools / CI**: the first build compiles the Filament host tools (`scripts/build-host-tools.sh`); CI runs the same scripts (`.github/workflows/build.yml`)
 - **Serve & Test**: `python -m http.server 8000 --directory build-wasm` (open `http://localhost:8000/videoTest.html`)
 
 ## Key Rules to Remember

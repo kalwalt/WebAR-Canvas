@@ -10,6 +10,7 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/kalwalt/WebAR-Canvas/actions/workflows/build.yml"><img src="https://github.com/kalwalt/WebAR-Canvas/actions/workflows/build.yml/badge.svg?branch=dev" alt="Build" /></a>
   <a href="https://en.cppreference.com/w/cpp/17"><img src="https://img.shields.io/badge/C%2B%2B-17-00599C?logo=c%2B%2B" alt="C++17" /></a>
   <a href="https://webassembly.org/"><img src="https://img.shields.io/badge/WebAssembly-WASM-654FF0?logo=webassembly&logoColor=white" alt="WebAssembly" /></a>
   <a href="https://emscripten.org/"><img src="https://img.shields.io/badge/Emscripten-4.0.17-orange" alt="Emscripten 4.0.17" /></a>
@@ -143,6 +144,8 @@ node build-docker.js -j 8
 # Full clean rebuild
 node build-docker.js --clean
 ```
+
+The first build also compiles the Filament host tools (`matc`, `resgen`, `cmgen`, `glslminifier`) into `third_party/filament/out/host` with `scripts/build-host-tools.sh`; this takes a while once and is skipped afterwards. The same scripts run in CI (`.github/workflows/build.yml`) on every pull request to `dev` and `master`.
 
 ### Build Artifacts
 Upon completion, the following artifacts are generated in `build-wasm/`:

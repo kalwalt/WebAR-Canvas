@@ -1,0 +1,58 @@
+name: Build
+
+on:
+  push:
+    branches: [dev, master]
+  pull_request:
+    branches: [dev, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  wasm:
+    name: WebAssembly build
+    runs-on: ubuntu-latest
+    # The same image as build-docker.js: the host tools are built in it too.
+    container: emscripten/emsdk:4.0.17
+    timeout-minutes: 120
+    steps:
+      - name: Check out with submodules
+        uses: actions/checkout@v7
+        with:
+          submodules: true
+
+      - name: Read the Filament submodule commit
+        id: filament
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          echo "sha=$(git rev-parse HEAD:third_party/filament)" >> "$GITHUB_OUTPUT"
+
+      # Only the tools and the import file: the WASM build needs nothing else from out/host.
+      - name: Cache the Filament host tools
+        uses: actions/cache@v6
+        with:
+          path: |
+            third_party/filament/out/host/tools/matc/matc
+            third_party/filament/out/host/tools/resgen/resgen
+            third_party/filament/out/host/tools/cmgen/cmgen
+            third_party/filament/out/host/tools/glslminifier/glslminifier
+            third_party/filament/ImportExecutables-Release.cmake
+          key: filament-host-tools-${{ steps.filament.outputs.sha }}-emsdk-4.0.17
+
+      - name: Build the Filament host tools
+        run: sh scripts/build-host-tools.sh
+
+      - name: Build WebAR-Canvas
+        run: sh scripts/build-wasm.sh
+
+      - name: Upload the app
+        uses: actions/upload-artifact@v7
+        with:
+          name: webar-canvas-wasm
+          path: |
+            build-wasm/videoTest.html
+            build-wasm/videoTest.js
+            build-wasm/videoTest.wasm
+          if-no-files-found: error
