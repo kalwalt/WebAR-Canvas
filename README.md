@@ -98,7 +98,7 @@ WebAR-Canvas/
 │   ├── main.cpp                # WebARApp application entry point & 3D AR scene
 │   ├── shell.html              # Emscripten HTML shell template
 │   └── nft/                    # Native C++ NFT tracking subsystem
-│       └── ARNFTTracker.h/.cpp # C++ tracker interface (camera, handles, tracking loop)
+│       └── ARNFTTracker.h/.cpp # NFT tracker: adapter over WebARKitLib's ARToolKitNFTCore
 ├── third_party/
 │   ├── filament/               # Google Filament submodule
 │   └── WebARKitLib/            # WebARKitLib submodule (AR, AR2, ARICP, KPM, WebARKitNFT helpers)
