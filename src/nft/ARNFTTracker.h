@@ -43,7 +43,8 @@ public:
     /**
      * Allocates the frame for width x height and applies the camera. A later setup() re-applies
      * the camera: call setupAR2() and loadMarkers({}) after it, as after setCamera().
-     * @return 0, or -1 when the camera cannot be applied (the tracker is then torn down)
+     * @return 0, or -1 when the frame size is not positive or the camera cannot be applied
+     *         (the tracker is then torn down)
      */
     int setup(int width, int height, int cameraID);
     /** Applies another camera. As with the core, call setupAR2() and loadMarkers({}) after it. */

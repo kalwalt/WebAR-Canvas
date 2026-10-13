@@ -140,6 +140,16 @@ static void re_setup_checks_the_camera() {
   CHECK(t.update() == 0);
 }
 
+static void setup_rejects_an_empty_frame() {
+  ARNFTTracker t;
+  const int cam = t.loadCamera("/data/camera_para.dat");
+  CHECK(t.setup(640, 480, cam) == 0);
+  // WebARKitLib 0.11.0: setup() returns -1 for a non-positive frame size and changes nothing.
+  CHECK(t.setup(0, 480, cam) == -1);
+  CHECK(t.getVideoFrame() == nullptr);
+  CHECK(t.update() == 0);
+}
+
 static int gTrackedLogLines = 0;
 static void countTrackedLogLines(const char *message) {
   if (std::strstr(message, "Tracked page") != nullptr) ++gTrackedLogLines;
@@ -173,6 +183,7 @@ static const TestCase kTests[] = {
     {"tracks_pinball_demo", tracks_pinball_demo},
     {"loses_tracking_on_blank_frame", loses_tracking_on_blank_frame},
     {"re_setup_checks_the_camera", re_setup_checks_the_camera},
+    {"setup_rejects_an_empty_frame", setup_rejects_an_empty_frame},
     {"no_log_line_per_tracked_frame", no_log_line_per_tracked_frame},
 };
 

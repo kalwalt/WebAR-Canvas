@@ -20,14 +20,11 @@ int ARNFTTracker::loadCamera(const std::string &cparamName) {
 }
 
 int ARNFTTracker::setup(int w, int h, int cameraID) {
-    // On a later setup() the core keeps the previous paramLT when the camera fails, so
-    // cameraParamLT() proves nothing there: check setCamera() instead (ARToolKitNFTCore.h).
-    const bool reSetup = core.cameraParamLT() != nullptr;
+    // The core returns -1 for an invalid frame size (changing nothing), and frees paramLT when
+    // the camera cannot be applied, so cameraParamLT() tells on every setup() (WebARKitLib 0.11.0).
     this->coreId = core.setup(w, h, cameraID);
-    const bool cameraApplied = reSetup ? core.setCamera(this->coreId, cameraID) == 0
-                                       : core.cameraParamLT() != nullptr;
-    if (!cameraApplied) {
-        ARLOGe("setup(): camera %d could not be applied\n", cameraID);
+    if (this->coreId < 0 || core.cameraParamLT() == nullptr) {
+        ARLOGe("setup(): frame %dx%d with camera %d could not be set up\n", w, h, cameraID);
         teardown();
         return -1;
     }
