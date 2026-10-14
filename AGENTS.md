@@ -49,10 +49,10 @@ Wasm_AR_Engine/
 │   ├── shell.html           # Emscripten HTML shell template
 │   └── nft/                 # Native C++ NFT tracking subsystem
 │       ├── ARNFTTracker.h   # C++ NFT tracker interface
-│       └── ARNFTTracker.cpp # C++ NFT tracker implementation (loadCamera, setup, setupAR2)
+│       └── ARNFTTracker.cpp # Adapter over WebARKitLib's ARToolKitNFTCore (RGBA frame + luma here, tracking in the core)
 ├── third_party/
 │   ├── filament/            # Google Filament submodule
-│   └── WebARKitLib/         # WebARKitLib submodule (AR, AR2, ARICP, ARUtil, KPM, WebARKitNFT: trackingMod, markerDecompress, NFTMarkerState)
+│   └── WebARKitLib/         # WebARKitLib submodule (AR, AR2, ARICP, ARUtil, KPM, WebARKitNFT: ARToolKitNFTCore, trackingMod, markerDecompress, NFTMarkerState)
 ├── build-wasm/              # Build directory containing compiled WASM, JS, and HTML
 ├── build-docker.js          # Cross-platform Node.js build runner for Docker (Windows & Linux)
 ├── CMakeLists.txt           # Main CMake project build definition
@@ -75,11 +75,17 @@ node build-docker.js -j 8
 
 # Clean rebuild
 node build-docker.js --clean
+
+# Build, then run the ARNFTTracker tests with Node
+node build-docker.js --test
 ```
 
-`build-docker.js` runs two scripts inside the container, the same ones the CI runs (`.github/workflows/build.yml`):
+`build-docker.js` runs these scripts inside the container, the same ones the CI runs (`.github/workflows/build.yml`):
 - `scripts/build-host-tools.sh`: builds the Filament host tools (`matc`, `resgen`, `cmgen`, `glslminifier`) in `third_party/filament/out/host` with emsdk's clang, once; it skips them when already built.
-- `scripts/build-wasm.sh`: configures and builds the `WebAR-Canvas` target into `build-wasm/`.
+- `scripts/build-wasm.sh [jobs] [target]`: configures `build-wasm/` and builds a target (`WebAR-Canvas` by default).
+- `scripts/test-wasm.sh` (with `--test`): builds `nft_tests` and runs it with Node. It drives `ARNFTTracker` on WebARKitLib's fixtures (`tests/data`, embedded at `/data`, including `pinball-demo.jpg`), with no browser or webcam; the exit code is the number of failed checks.
+
+The Emscripten cache lives in the `webar-canvas-emcache-4.0.17` Docker volume, so the libjpeg and zlib ports are downloaded once.
 
 Keep `*.sh` files with LF line endings (`.gitattributes`): they run in Linux containers.
 
@@ -121,7 +127,7 @@ Allowed types: `feat`, `fix`, `perf`, `doc`, `refactor`, `test`, `style`, `chore
 
 ## 6. Testing & Verification
 
-1. Compile the WebAssembly build using `node build-docker.js`.
+1. Compile the WebAssembly build and run the tests using `node build-docker.js --test` (last line: `N checks, 0 failed`). Changes to `ARNFTTracker` need a test in `tests/nft_tests.cpp`.
 2. Start a local HTTP server serving `build-wasm/`:
    ```bash
    python -m http.server 8000 --directory build-wasm
@@ -129,7 +135,8 @@ Allowed types: `feat`, `fix`, `perf`, `doc`, `refactor`, `test`, `style`, `chore
 3. Open `http://localhost:8000/videoTest.html` in a WebGL 2 capable browser (Chrome, Edge, Firefox).
 4. Verify the DevTools console:
    - WebGL 2 context creation and Filament Engine initialization.
-   - Camera parameters loaded from `/assets/camera_para.dat`.
-   - `setCamera()` lookup table creation.
+   - Camera parameters from `/assets/camera_para.dat` (`*** Camera Parameter ***`, `SIZE = 640, 480`).
+   - `setCamera(): arParamLTCreated` (lookup table creation).
+   - NFT marker loaded: `NFT marker 0: 893 x 1117 at 120 dpi`.
    - NFT Camera Frustum projection matrix printed in 4x4 column-major format.
    - Smooth continuous frame rendering without WASM runtime exceptions.

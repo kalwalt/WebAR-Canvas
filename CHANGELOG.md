@@ -13,6 +13,33 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - CI: a GitHub Actions workflow builds the WebAssembly app on every pull request and push to
   `dev` and `master`, and uploads `videoTest.{html,js,wasm}` as an artifact (#9).
 - `scripts/build-host-tools.sh` and `scripts/build-wasm.sh`, shared by CI and `build-docker.js`.
+- Node test runner `nft_tests` for `ARNFTTracker` (tracking `pinball-demo.jpg`, lost marker,
+  out-of-range indices, missing assets, frustum and detection settings), run by
+  `node build-docker.js --test` and in CI (#9, #11).
+
+### Changed
+
+- WebARKitLib 0.10.0 → 0.11.0, which adds `ARToolKitNFTCore` (webarkit/WebARKitLib#94) and
+  fixes from its review: `setup()` validates the frame size and frees a camera it cannot apply,
+  separate include guards for the two `WebARKitLog.h`, KPM memory and thread fixes (#11).
+- `build-docker.js` keeps the Emscripten cache in the `webar-canvas-emcache-4.0.17` Docker
+  volume, so the libjpeg and zlib ports are downloaded once.
+- `ARNFTTracker` delegates camera, markers, KPM detection, AR2 tracking and pose filtering to
+  `ARToolKitNFTCore` (WebARKitLib PR #94); its own code drops from ~480 to ~170 lines. Same
+  settings as before: filtering on, 200 ms detection interval, projection planes 10 / 5000 (#11).
+- `ARNFTTracker::getMarkerData()` returns `NFTMarkerData` by value.
+- `ARNFTTracker::setup()` returns -1 and tears the tracker down when the frame size is not
+  positive or the camera cannot be applied, also when it is called again, instead of reporting
+  success with the previous camera or frame.
+- `ARNFTTracker::update()` keeps ARToolKit's log at WARN while the core runs: the core logs every
+  tracked frame at INFO ("Tracked page ...").
+
+### Removed
+
+- `ARNFTTracker::updateVideoLuma()`, `detectNFTMarker()` and `trackMarkers()`: `update()` runs
+  the whole cycle in the core.
+- `ARNFTTracker::getSurfaceSet()`, `setFilterParameters()` and the non-const
+  `getMarkerState()`: no equivalent in `ARToolKitNFTCore` (#11).
 
 ### Fixed
 

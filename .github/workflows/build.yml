@@ -47,6 +47,9 @@ jobs:
       - name: Build WebAR-Canvas
         run: sh scripts/build-wasm.sh
 
+      - name: Run the NFT tests
+        run: sh scripts/test-wasm.sh
+
       - name: Upload the app
         uses: actions/upload-artifact@v7
         with:

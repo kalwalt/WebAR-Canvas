@@ -98,7 +98,7 @@ WebAR-Canvas/
 │   ├── main.cpp                # WebARApp application entry point & 3D AR scene
 │   ├── shell.html              # Emscripten HTML shell template
 │   └── nft/                    # Native C++ NFT tracking subsystem
-│       └── ARNFTTracker.h/.cpp # C++ tracker interface (camera, handles, tracking loop)
+│       └── ARNFTTracker.h/.cpp # NFT tracker: adapter over WebARKitLib's ARToolKitNFTCore
 ├── third_party/
 │   ├── filament/               # Google Filament submodule
 │   └── WebARKitLib/            # WebARKitLib submodule (AR, AR2, ARICP, KPM, WebARKitNFT helpers)
@@ -143,6 +143,9 @@ node build-docker.js -j 8
 
 # Full clean rebuild
 node build-docker.js --clean
+
+# Build, then run the NFT tracker tests with Node (no browser or webcam needed)
+node build-docker.js --test
 ```
 
 The first build also compiles the Filament host tools (`matc`, `resgen`, `cmgen`, `glslminifier`) into `third_party/filament/out/host` with `scripts/build-host-tools.sh`; this takes a while once and is skipped afterwards. The same scripts run in CI (`.github/workflows/build.yml`) on every pull request to `dev` and `master`.
