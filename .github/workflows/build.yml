@@ -23,6 +23,9 @@ jobs:
         with:
           submodules: true
 
+      - name: Test the build runner's checks
+        run: node --test scripts/build-docker.test.js
+
       - name: Read the Filament submodule commit
         id: filament
         run: |
