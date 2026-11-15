@@ -91,12 +91,19 @@ configure_file(
     @ONLY
 )
 
-set(SOURCES src/main.cpp src/ARBaseEngine.cpp ${MATERIAL_OUTPUT} ${CUBE_MATERIAL_OUTPUT})
+set(SOURCES
+    src/main.cpp
+    src/app/App.cpp
+    src/core/ARBaseEngine.cpp
+    ${MATERIAL_OUTPUT}
+    ${CUBE_MATERIAL_OUTPUT}
+)
 add_executable(${PROJECT_NAME} ${SOURCES})
 
 # --- Include Directories ---
-target_include_directories(${PROJECT_NAME} PRIVATE 
+target_include_directories(${PROJECT_NAME} PRIVATE
     src/
+    src/core/
     src/nft/
     ${CMAKE_CURRENT_BINARY_DIR}/generated
     ${FILAMENT_SOURCE_DIR}/include

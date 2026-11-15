@@ -45,9 +45,13 @@ Wasm_AR_Engine/
 ├── assets/                  # Embedded assets (camera_para.dat, pinball.fset, pinball.fset3, pinball.iset)
 ├── materials/               # Source shaders (.mat) compiled to .fil with matc
 ├── src/
-│   ├── ARBaseEngine.h       # Base engine header (Filament core + NFT tracker integration)
-│   ├── ARBaseEngine.cpp     # Base engine implementation (WebGL context, background quad, main loop)
-│   ├── main.cpp             # WebARApp application implementation & entry point
+│   ├── core/                # Framework core
+│   │   ├── ARBaseEngine.h   # Base engine header (Filament core + NFT tracker integration)
+│   │   └── ARBaseEngine.cpp # Base engine implementation (WebGL context, background quad, main loop)
+│   ├── app/                 # The application (user code)
+│   │   ├── App.h            # class App : public ARBaseEngine (the demo: a cube on the marker)
+│   │   └── App.cpp          # App's setup() and update()
+│   ├── main.cpp             # Entry point: creates the App and runs it
 │   ├── shell.html           # Emscripten HTML shell template
 │   └── nft/                 # Native C++ NFT tracking subsystem
 │       ├── ARNFTTracker.h   # C++ NFT tracker interface

@@ -95,8 +95,9 @@ WebAR-Canvas/
 │   ├── video_background.mat    # Fullscreen device-domain video quad shader
 │   └── ar_cube.mat             # Unlit vertex-colored 3D entity shader
 ├── src/                        # Native C++ source code
-│   ├── ARBaseEngine.h/.cpp     # Core engine: WebGL context, dual pipeline, main loop
-│   ├── main.cpp                # WebARApp application entry point & 3D AR scene
+│   ├── core/ARBaseEngine.h/.cpp # Core engine: WebGL context, dual pipeline, main loop
+│   ├── app/App.h/.cpp          # The application: the 3D AR scene (a cube on the marker)
+│   ├── main.cpp                # Entry point
 │   ├── shell.html              # Emscripten HTML shell template
 │   └── nft/                    # Native C++ NFT tracking subsystem
 │       └── ARNFTTracker.h/.cpp # NFT tracker: adapter over WebARKitLib's ARToolKitNFTCore
@@ -200,10 +201,10 @@ Open `http://localhost:8000/videoTest.html` in Chrome, Edge, or Firefox.
 
 ## 🎨 Developing Your Own AR Application
 
-To build a custom AR experience, inherit from `ARBaseEngine` and implement `setup()` and `update()`:
+To build a custom AR experience, inherit from `ARBaseEngine` and implement `setup()` and `update()` (the demo app is `src/app/App.h/.cpp`):
 
 ```cpp
-#include "ARBaseEngine.h"
+#include "core/ARBaseEngine.h"
 #include <filament/TransformManager.h>
 
 class CustomARApp : public ARBaseEngine {
