@@ -234,6 +234,8 @@ AR_APP_MAIN(MyApp, 640, 480, "/assets/markers/pinball")
 var Module = { webarConfig: { markers: ['/assets/markers/pinball'], videoWidth: 640, videoHeight: 480 } };
 ```
 
+The default shell (`src/shell.html`) already declares `var Module = { ... }`: add `webarConfig` to that object rather than declaring a second `Module`.
+
 ---
 
 ## 🌿 Git & Contribution Guidelines

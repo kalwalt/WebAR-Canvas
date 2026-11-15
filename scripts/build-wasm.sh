@@ -3,7 +3,7 @@
 #
 # Run it inside the emscripten/emsdk image after scripts/build-host-tools.sh, as
 # build-docker.js and the CI do. Uses Ninja when it is installed, Unix Makefiles otherwise.
-# The test target (nft_tests) is configured too, but only built when asked for.
+# The test targets (nft_tests, core_tests) are configured too, but only built when asked for.
 #
 # Usage: scripts/build-wasm.sh [jobs] [target]   (target: WebAR-Canvas by default)
 set -eu

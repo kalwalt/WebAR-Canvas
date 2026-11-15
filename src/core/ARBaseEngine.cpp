@@ -130,6 +130,7 @@ bool ARBaseEngine::init(const ARAppConfig &config) {
 
   // --- STEP 3: Load the NFT marker datasets ---
   for (const std::string &markerPath : config.markerPaths) {
+    if (markerPath.empty()) continue;
     printf("Loading NFT marker from: %s\n", markerPath.c_str());
     int markerId = nftTracker->loadMarker(markerPath);
     if (markerId < 0) {
@@ -189,6 +190,8 @@ void ARBaseEngine::updateTracking() {
 
 // onMarkerFound / onMarkerLost for every marker whose tracked state changed on this frame.
 void ARBaseEngine::dispatchMarkerEvents() {
+  // Also covers markers the app loads after init() (getNFTTracker()->loadMarker()).
+  markerTracked.resize(nftTracker->getMarkerCount(), false);
   for (std::size_t i = 0; i < markerTracked.size(); ++i) {
     markerTracked[i] = nftTracker->isMarkerTracked(static_cast<int>(i));
   }

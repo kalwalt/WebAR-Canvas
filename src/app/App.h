@@ -8,8 +8,6 @@
 #include <filament/VertexBuffer.h>
 #include <utils/Entity.h>
 
-using namespace filament;
-
 // The demo app: a colourful 3D cube on the pinball marker.
 class App : public ARBaseApp {
 public:
@@ -26,10 +24,10 @@ public:
 
 private:
     utils::Entity cubeEntity;
-    VertexBuffer* cubeVb = nullptr;
-    IndexBuffer* cubeIb = nullptr;
-    Material* cubeMaterial = nullptr;
-    MaterialInstance* cubeMaterialInst = nullptr;
+    filament::VertexBuffer* cubeVb = nullptr;
+    filament::IndexBuffer* cubeIb = nullptr;
+    filament::Material* cubeMaterial = nullptr;
+    filament::MaterialInstance* cubeMaterialInst = nullptr;
 };
 
 #endif // WEBAR_APP_H

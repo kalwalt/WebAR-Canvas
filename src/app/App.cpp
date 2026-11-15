@@ -9,6 +9,8 @@
 #include <iostream>
 #include <vector>
 
+using namespace filament;
+
 App::~App() {
     Engine *engine = getEngine();
     if (engine) {

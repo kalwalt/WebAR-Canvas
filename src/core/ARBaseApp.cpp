@@ -1,5 +1,7 @@
 #include "core/ARBaseApp.h"
+#ifdef WEBAR_RENDERER_FILAMENT
 #include "core/FilamentRenderer.h"
+#endif
 
 #include <emscripten.h>
 
@@ -10,18 +12,19 @@
 // Module.webarConfig, read without Embind: the page sets it before the module starts.
 EM_JS_DEPS(webar_config, "$stringToNewUTF8,$UTF8ToString");
 
-// A positive integer field, or fallback when it is missing or not a positive integer.
+// A positive integer field (a JS number up to 16384), or fallback otherwise.
 EM_JS(int, webar_config_int, (const char *key, int fallback), {
   var config = Module.webarConfig;
-  if (!config) return fallback;
-  var value = Number(config[UTF8ToString(key)]);
-  return (Number.isInteger(value) && value > 0) ? value : fallback;
+  if (!config || typeof config !== 'object') return fallback;
+  var value = config[UTF8ToString(key)];
+  return (typeof value === 'number' && Number.isInteger(value) && value > 0 && value <= 16384)
+      ? value : fallback;
 });
 
 // A string field as a malloc'd UTF-8 copy, or null when it is missing or not a string.
 EM_JS(char *, webar_config_string, (const char *key), {
   var config = Module.webarConfig;
-  if (!config) return 0;
+  if (!config || typeof config !== 'object') return 0;
   var value = config[UTF8ToString(key)];
   return (typeof value === 'string') ? stringToNewUTF8(value) : 0;
 });
@@ -29,7 +32,7 @@ EM_JS(char *, webar_config_string, (const char *key), {
 // The markers array joined with newlines (strings only), or null when there is no array.
 EM_JS(char *, webar_config_markers, (), {
   var config = Module.webarConfig;
-  if (!config || !Array.isArray(config.markers)) return 0;
+  if (!config || typeof config !== 'object' || !Array.isArray(config.markers)) return 0;
   var list = config.markers.filter(function(m) { return typeof m === 'string'; });
   return stringToNewUTF8(list.join('\n'));
 });
@@ -49,6 +52,10 @@ void ARBaseApp::applyPageConfig(ARAppConfig &config) {
   if (char *markers = webar_config_markers()) {
     config.markerPaths = parseMarkerList(markers);
     std::free(markers);
+    if (config.markerPaths.empty()) {
+      std::cerr << "Module.webarConfig.markers has no marker path: no marker will be tracked"
+                << std::endl;
+    }
   }
 }
 

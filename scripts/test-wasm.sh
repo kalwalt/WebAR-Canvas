@@ -17,4 +17,6 @@ sh "$root/scripts/build-wasm.sh" "$jobs" core_tests
 failures=0
 node "$root/build-wasm/nft_tests.js" || failures=$((failures + $?))
 node "$root/build-wasm/core_tests.js" || failures=$((failures + $?))
+# Exit codes are taken mod 256: cap the total so failures never read as success.
+[ "$failures" -gt 255 ] && failures=255
 exit "$failures"

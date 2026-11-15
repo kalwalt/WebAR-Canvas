@@ -37,7 +37,7 @@ The entire application lifecycle, computer vision tracking, camera projection ca
 ### D. Dual Video Pipeline
 - **GPU Path (Rendering)**: The HTML `<video>` stream is uploaded directly to a WebGL texture via `update_webgl_texture` in `FilamentRenderer.cpp` and rendered as a background quad using an unlit Filament material (`video_background.fil`).
 - **CPU Path (Tracking)**: Frames are ingested into CPU memory (`videoFrame` RGBA and `videoLuma` grayscale luminance) for KPM feature matching and AR2 template tracking.
-- **Frame pacing**: both paths run once per new camera frame (`requestVideoFrameCallback`, in `ARBaseEngine::updateVideoFrame()`), not once per display frame; `update()` and `render()` run every display frame. Without `requestVideoFrameCallback`, or when it has not fired for 250 ms while the video plays, every tick processes the frame.
+- **Frame pacing**: both paths run once per new camera frame (`requestVideoFrameCallback`, in `ARBaseEngine::updateVideoFrame()`), not once per display frame; `update()`, `draw()` and the render run every display frame. Without `requestVideoFrameCallback`, or when it has not fired for 250 ms while the video plays, every tick processes the frame.
 - **KPM on the main thread**: while no marker is tracked, `ARToolKitNFTCore` runs KPM detection on every frame. The 200 ms detection interval only limits re-detection while some markers are tracked and others are not; with a single marker, KPM stops once it is tracked. A KPM pass takes tens of milliseconds, so searching is the slowest state of the app (#4).
 
 ### E. Camera Projection & Coordinate Alignment
