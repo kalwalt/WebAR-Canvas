@@ -1,10 +1,15 @@
 #include "core/ARBaseApp.h"
+#include "nft/ARNFTTracker.h"
 #ifdef WEBAR_RENDERER_FILAMENT
 #include "core/FilamentRenderer.h"
+#include <filament/Engine.h>
+#include <filament/TransformManager.h>
+#include <math/mat4.h>
 #endif
 
 #include <emscripten.h>
 
+#include <algorithm>
 #include <cstdlib>
 #include <iostream>
 #include <string>
@@ -82,6 +87,49 @@ filament::Engine *ARBaseApp::getEngine() const { return filamentBackend ? filame
 filament::Scene *ARBaseApp::getScene() const { return filamentBackend ? filamentBackend->getScene() : nullptr; }
 
 filament::Camera *ARBaseApp::getCamera() const { return filamentBackend ? filamentBackend->getCamera() : nullptr; }
+
+void ARBaseApp::attachToMarker(utils::Entity entity, int markerIndex, ARAnchorOptions options) {
+  detachFromMarker(entity);
+  if (filament::Engine *engine = getEngine()) {
+    auto &tcm = engine->getTransformManager();
+    if (!tcm.hasComponent(entity)) tcm.create(entity);
+    tcm.setTransform(tcm.getInstance(entity), filament::math::mat4f::scaling(0.0f)); // hidden
+  }
+  markerBindings.push_back({entity, markerIndex, ARAnchor(options)});
+}
+
+void ARBaseApp::detachFromMarker(utils::Entity entity) {
+  markerBindings.erase(std::remove_if(markerBindings.begin(), markerBindings.end(),
+                                      [entity](const MarkerBinding &b) { return b.entity == entity; }),
+                       markerBindings.end());
+}
+
+void ARBaseApp::beforeUpdate() {
+  filament::Engine *engine = getEngine();
+  if (!engine || markerBindings.empty()) return;
+  auto &tcm = engine->getTransformManager();
+  for (MarkerBinding &binding : markerBindings) {
+    float pose[16], anchored[16];
+    const bool tracked = getMarkerPose(binding.markerIndex, pose);
+    float centerX = 0.0f, centerY = 0.0f;
+    if (tracked) {
+      const NFTMarkerData marker = getNFTTracker()->getMarkerData(binding.markerIndex);
+      markerCenterMm(marker.width, marker.height, marker.dpi, centerX, centerY);
+    }
+    binding.anchor.update(tracked, pose, centerX, centerY, anchored);
+    auto instance = tcm.getInstance(binding.entity);
+    if (!instance.isValid()) continue;
+    if (!binding.anchor.visible()) {
+      tcm.setTransform(instance, filament::math::mat4f::scaling(0.0f));
+      continue;
+    }
+    filament::math::mat4f transform;
+    for (int c = 0; c < 4; ++c) {
+      for (int r = 0; r < 4; ++r) transform[c][r] = anchored[c * 4 + r];
+    }
+    tcm.setTransform(instance, transform);
+  }
+}
 #else
 #error "No rendering backend: build with WEBAR_RENDERER_FILAMENT (set by CMakeLists.txt)."
 #endif

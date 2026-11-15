@@ -3,6 +3,7 @@
 // Covers src/core/AREvents.h and src/core/ARAppConfig.h: no Filament, no tracker, no browser.
 // The exit code is the number of failed checks.
 
+#include "core/ARAnchor.h"
 #include "core/ARAppConfig.h"
 #include "core/AREvents.h"
 
@@ -101,6 +102,68 @@ static void delta_is_clamped() { CHECK(computeDeltaSeconds(1000.0, 6000.0) == 0.
 
 static void delta_never_negative() { CHECK(computeDeltaSeconds(1000.0, 999.0) == 0.0); }
 
+// --- ARAnchor (column-major 4x4: translation in [12], [13], [14]) ---
+
+static void setIdentity(float m[16]) {
+  for (int i = 0; i < 16; ++i) m[i] = (i % 5 == 0) ? 1.0f : 0.0f;
+}
+
+static bool near(float a, float b, float eps = 1e-3f) { return std::fabs(a - b) < eps; }
+
+static void marker_center_pinball() {
+  float x = 0.0f, y = 0.0f;
+  markerCenterMm(893, 1117, 120, x, y);
+  CHECK(near(x, 94.51f, 0.01f) && near(y, 118.22f, 0.01f));
+}
+
+static void anchor_identity_pose_centres() {
+  ARAnchor anchor;
+  float pose[16], out[16];
+  setIdentity(pose);
+  anchor.update(true, pose, 94.51f, 118.22f, out);
+  CHECK(anchor.visible());
+  CHECK(near(out[12], 94.51f) && near(out[13], 118.22f) && near(out[14], 0.0f));
+  CHECK(near(out[0], 1.0f) && near(out[5], 1.0f) && near(out[10], 1.0f) && near(out[15], 1.0f));
+  CHECK(near(out[1], 0.0f) && near(out[4], 0.0f) && near(out[8], 0.0f));
+}
+
+static void anchor_hidden_when_lost() {
+  ARAnchor anchor;
+  float pose[16], out[16];
+  setIdentity(pose);
+  anchor.update(true, pose, 0.0f, 0.0f, out);
+  anchor.update(false, pose, 0.0f, 0.0f, out);
+  CHECK(!anchor.visible());
+}
+
+static void anchor_smoothing_halfway() {
+  ARAnchorOptions options;
+  options.centerOnMarker = false;
+  options.smoothing = 0.5f;
+  ARAnchor anchor(options);
+  float pose[16], out[16];
+  setIdentity(pose);
+  anchor.update(true, pose, 50.0f, 50.0f, out);
+  pose[12] = 10.0f;
+  anchor.update(true, pose, 50.0f, 50.0f, out);
+  CHECK(near(out[12], 5.0f) && near(out[13], 0.0f));
+  CHECK(near(out[0], 1.0f) && near(out[5], 1.0f) && near(out[10], 1.0f));
+}
+
+static void anchor_no_smoothing_across_loss() {
+  ARAnchorOptions options;
+  options.centerOnMarker = false;
+  options.smoothing = 0.5f;
+  ARAnchor anchor(options);
+  float pose[16], out[16];
+  setIdentity(pose);
+  anchor.update(true, pose, 0.0f, 0.0f, out);
+  anchor.update(false, pose, 0.0f, 0.0f, out);
+  pose[12] = 10.0f;
+  anchor.update(true, pose, 0.0f, 0.0f, out);
+  CHECK(anchor.visible() && near(out[12], 10.0f));
+}
+
 struct TestCase {
   const char *name;
   void (*run)();
@@ -118,6 +181,11 @@ static const TestCase kTests[] = {
     {"delta_in_seconds", delta_in_seconds},
     {"delta_is_clamped", delta_is_clamped},
     {"delta_never_negative", delta_never_negative},
+    {"marker_center_pinball", marker_center_pinball},
+    {"anchor_identity_pose_centres", anchor_identity_pose_centres},
+    {"anchor_hidden_when_lost", anchor_hidden_when_lost},
+    {"anchor_smoothing_halfway", anchor_smoothing_halfway},
+    {"anchor_no_smoothing_across_loss", anchor_no_smoothing_across_loss},
 };
 
 int main() {

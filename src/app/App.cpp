@@ -22,6 +22,11 @@ App::~App() {
             engine->destroy(cubeEntity);
         }
         utils::EntityManager::get().destroy(cubeEntity);
+        detachFromMarker(anchorEntity);
+        if (tcm.hasComponent(anchorEntity)) {
+            tcm.destroy(anchorEntity);
+        }
+        utils::EntityManager::get().destroy(anchorEntity);
         if (cubeMaterialInst) engine->destroy(cubeMaterialInst);
         if (cubeMaterial) engine->destroy(cubeMaterial);
         if (cubeVb) engine->destroy(cubeVb);
@@ -141,11 +146,15 @@ void App::setup() {
 
     scene->addEntity(cubeEntity);
 
-    // Initialize transform component (hidden initially until marker is acquired)
+    // The cube spins under an anchor bound to marker 0 (centred on it, hidden while lost).
     auto &tcm = engine->getTransformManager();
-    tcm.create(cubeEntity);
-    auto inst = tcm.getInstance(cubeEntity);
-    tcm.setTransform(inst, math::mat4f::scaling(math::float3{0.0f}));
+    anchorEntity = utils::EntityManager::get().create();
+    attachToMarker(anchorEntity, 0);
+    // Building the renderable may already have given the cube a transform component. Do not
+    // pass a parent Instance to tcm.create() then: create() destroys the old component first,
+    // which moves other instances (the anchor's), so the parent would be stale.
+    if (!tcm.hasComponent(cubeEntity)) tcm.create(cubeEntity);
+    tcm.setParent(tcm.getInstance(cubeEntity), tcm.getInstance(anchorEntity));
 
     printf("AR 3D Cube added to scene successfully!\n");
 }
@@ -153,41 +162,17 @@ void App::setup() {
 void App::update(float deltaTime) {
     auto &tcm = getEngine()->getTransformManager();
     auto inst = tcm.getInstance(cubeEntity);
-    if (!inst.isValid()) return;
+    if (!inst.isValid() || !isTracking) return;
 
-    if (isTracking) {
-        // Convert column-major modelViewMatrix to Filament mat4f
-        math::mat4f filamentPose;
-        for (int c = 0; c < 4; ++c) {
-            for (int r = 0; r < 4; ++r) {
-                filamentPose[c][r] = modelViewMatrix[c * 4 + r];
-            }
-        }
+    // Slowly spin the cube around its Z axis for dynamic AR feedback (the anchor places it).
+    static float spinAngle = 0.0f;
+    spinAngle += deltaTime * 1.5f;
+    tcm.setTransform(inst, math::mat4f::rotation(spinAngle, math::float3{0.0f, 0.0f, 1.0f}));
 
-        // Pinball marker is 893x1117 @ 120 DPI (~189.02mm x 236.43mm)
-        // Center is (94.51mm, 118.22mm)
-        const float markerCenterX = (893.0f / 120.0f) * 25.4f * 0.5f;
-        const float markerCenterY = (1117.0f / 120.0f) * 25.4f * 0.5f;
-
-        // Slowly spin the cube around its Z axis for dynamic AR feedback
-        static float spinAngle = 0.0f;
-        spinAngle += deltaTime * 1.5f;
-
-        math::mat4f centerTrans = math::mat4f::translation(math::float3{markerCenterX, markerCenterY, 0.0f});
-        math::mat4f spinRot = math::mat4f::rotation(spinAngle, math::float3{0.0f, 0.0f, 1.0f});
-        math::mat4f localTransform = centerTrans * spinRot;
-
-        math::mat4f finalTransform = filamentPose * localTransform;
-        tcm.setTransform(inst, finalTransform);
-
-        static int trackLogCount = 0;
-        if (trackLogCount++ % 60 == 0) {
-            printf("[App] Tracking active! Pose Translation: [%.2f, %.2f, %.2f]\n",
-                   modelViewMatrix[12], modelViewMatrix[13], modelViewMatrix[14]);
-        }
-    } else {
-        // Hide the cube when tracking is not active
-        tcm.setTransform(inst, math::mat4f::scaling(math::float3{0.0f}));
+    static int trackLogCount = 0;
+    if (trackLogCount++ % 60 == 0) {
+        printf("[App] Tracking active! Pose Translation: [%.2f, %.2f, %.2f]\n",
+               modelViewMatrix[12], modelViewMatrix[13], modelViewMatrix[14]);
     }
 }
 

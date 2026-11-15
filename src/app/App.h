@@ -23,7 +23,8 @@ public:
     void onMarkerLost(int markerIndex) override;
 
 private:
-    utils::Entity cubeEntity;
+    utils::Entity anchorEntity; // bound to marker 0, centred on it
+    utils::Entity cubeEntity;   // child of anchorEntity, spinning
     filament::VertexBuffer* cubeVb = nullptr;
     filament::IndexBuffer* cubeIb = nullptr;
     filament::Material* cubeMaterial = nullptr;

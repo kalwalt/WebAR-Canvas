@@ -192,11 +192,20 @@ void ARBaseEngine::updateTracking() {
 void ARBaseEngine::dispatchMarkerEvents() {
   // Also covers markers the app loads after init() (getNFTTracker()->loadMarker()).
   markerTracked.resize(nftTracker->getMarkerCount(), false);
+  markerPoses.resize(markerTracked.size());
   for (std::size_t i = 0; i < markerTracked.size(); ++i) {
     markerTracked[i] = nftTracker->isMarkerTracked(static_cast<int>(i));
+    nftTracker->getTransformMatrix(static_cast<int>(i), markerPoses[i].data()); // zeros if lost
   }
   markerEvents.update(markerTracked, [this](int i) { onMarkerFound(i); },
                       [this](int i) { onMarkerLost(i); });
+}
+
+bool ARBaseEngine::getMarkerPose(int markerIndex, float out[16]) const {
+  const bool known = markerIndex >= 0 && markerIndex < static_cast<int>(markerTracked.size());
+  const bool tracked = known && markerTracked[markerIndex];
+  for (int i = 0; i < 16; ++i) out[i] = tracked ? markerPoses[markerIndex][i] : 0.0f;
+  return tracked;
 }
 
 void ARBaseEngine::tick(void *arg) {
@@ -206,6 +215,7 @@ void ARBaseEngine::tick(void *arg) {
     return;
   }
   app->updateVideoFrame();     // New camera frame only: texture upload, capture, NFT tracking
+  app->beforeUpdate();         // ARBaseApp: marker anchors
   app->update(app->nextDeltaTime()); // App hook: logic and animation
   app->draw();                 // App hook: just before the render
   app->getRenderer().render(); // Draw the video background and the scene
@@ -235,6 +245,7 @@ void ARBaseEngine::profiledTick() {
     frameCaptured = false;
   }
   const double t2 = emscripten_get_now();
+  beforeUpdate();
   update(nextDeltaTime());
   draw();
   const double t3 = emscripten_get_now();

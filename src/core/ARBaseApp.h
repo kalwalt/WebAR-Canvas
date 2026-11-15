@@ -1,8 +1,15 @@
 #ifndef AR_BASE_APP_H
 #define AR_BASE_APP_H
 
+#include "core/ARAnchor.h"
 #include "core/ARAppConfig.h"
 #include "core/ARBaseEngine.h"
+
+#include <vector>
+
+#ifdef WEBAR_RENDERER_FILAMENT
+#include <utils/Entity.h>
+#endif
 
 class FilamentRenderer;
 
@@ -51,7 +58,21 @@ protected:
   filament::Scene *getScene() const;
   filament::Camera *getCamera() const;
 
+  // Binds an entity to marker markerIndex: before every update() its transform becomes the
+  // marker's pose (centred on the marker by default, see ARAnchorOptions), or scale 0 while the
+  // marker is not tracked. The entity gets a TransformManager component if it has none.
+  void attachToMarker(utils::Entity entity, int markerIndex, ARAnchorOptions options = {});
+  void detachFromMarker(utils::Entity entity);
+
+  void beforeUpdate() override;
+
 private:
+  struct MarkerBinding {
+    utils::Entity entity;
+    int markerIndex;
+    ARAnchor anchor;
+  };
+  std::vector<MarkerBinding> markerBindings;
   FilamentRenderer *filamentBackend = nullptr; // the object behind getRenderer()
 #endif
 };

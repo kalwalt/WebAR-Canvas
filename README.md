@@ -211,10 +211,12 @@ protected:
     void setup() override {
         // Once, when the renderer and the tracker are ready: create your entities.
         // getEngine() / getScene() / getCamera() give the Filament objects (Filament build).
+        // attachToMarker(entity, 0) keeps an entity on marker 0, centred, hidden while lost.
     }
 
     void update(float deltaTime) override {
-        // Every frame: marker 0's pose is getModelViewMatrix() while getIsTracking() is true.
+        // Every frame: marker 0's pose is getModelViewMatrix() while getIsTracking() is true;
+        // getMarkerPose(i, matrix) gives any marker's pose.
     }
 
     void draw() override {
