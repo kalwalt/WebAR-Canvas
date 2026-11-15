@@ -88,7 +88,9 @@ EM_JS(int, capture_video_frame, (uint8_t *dest, int width, int height), {
 // Returns 1 when the <video> has presented a frame since the last call, so the texture
 // upload, the capture and the tracking run once per camera frame instead of once per display
 // frame (a 30 fps camera on a 60-144 Hz display). Without requestVideoFrameCallback it always
-// returns 1, as before.
+// returns 1, as before. If the video plays but no callback has arrived for 250 ms (an engine
+// that does not fire it for this hidden 1 px element), it also returns 1 on every tick until
+// callbacks arrive again, so the texture and the tracking never freeze.
 EM_JS(int, video_frame_due, (), {
   var video = document.getElementById('ar-video');
   if (!video || !('requestVideoFrameCallback' in video)) {
@@ -96,22 +98,27 @@ EM_JS(int, video_frame_due, (), {
   }
   var watch = Module._videoFrameWatch;
   if (!watch || watch.video !== video) {
-    watch = Module._videoFrameWatch = { video: video, pending: true };
+    watch = Module._videoFrameWatch = { video: video, pending: true, last: performance.now() };
     var onFrame = function() {
+      if (Module._videoFrameWatch !== watch) {
+        return; // the element was replaced: stop watching the old one
+      }
       watch.pending = true;
+      watch.last = performance.now();
       video.requestVideoFrameCallback(onFrame);
     };
     video.requestVideoFrameCallback(onFrame);
   }
-  if (!watch.pending) {
-    return 0;
+  if (watch.pending) {
+    watch.pending = false;
+    return 1;
   }
-  watch.pending = false;
-  return 1;
+  var playing = !video.paused && video.readyState >= video.HAVE_CURRENT_DATA;
+  return (playing && performance.now() - watch.last > 250) ? 1 : 0;
 });
 
-// Opt-in frame timing probe (#4): set Module.webarProfile = { enabled: true, samples: [] }
-// before the module starts; every tick then appends one row (milliseconds) to samples.
+// Opt-in frame timing probe (#4): with Module.webarProfile = { enabled: true }, every tick
+// appends one row (milliseconds, wall time of the main thread) to Module.webarProfile.samples.
 EM_JS(int, webar_profile_enabled, (), {
   return (Module.webarProfile && Module.webarProfile.enabled) ? 1 : 0;
 });
@@ -120,8 +127,11 @@ EM_JS(void, webar_profile_record,
       (double upload, double capture, double luma, double track, double appUpdate,
        double render, double tick, int captured, int tracked), {
   var p = Module.webarProfile;
-  p.columns = ['upload', 'capture', 'draw', 'getImageData', 'heapSet', 'luma', 'track',
-               'appUpdate', 'render', 'tick', 'captured', 'tracked'];
+  if (!p.samples) p.samples = [];
+  if (!p.columns || !p.columns.length) {
+    p.columns = ['upload', 'capture', 'draw', 'getImageData', 'heapSet', 'luma', 'track',
+                 'appUpdate', 'render', 'tick', 'captured', 'tracked'];
+  }
   var c = (captured && p.capture) || [0, 0, 0];
   p.samples.push([upload, capture, c[0], c[1], c[2], luma, track, appUpdate, render, tick,
                   captured, tracked]);
@@ -459,7 +469,8 @@ void ARBaseEngine::updateVideoFrame() {
   updateTracking();     // CPU path: capture video frame & run NFT tracking
 }
 
-// The same steps as tick(), timed (milliseconds, CPU side of the main thread).
+// The same steps as tick() and updateVideoFrame(), timed (milliseconds, wall time of the main
+// thread; GPU work runs asynchronously and is not included). Keep it in step with them.
 void ARBaseEngine::profiledTick() {
   const double t0 = emscripten_get_now();
   const bool due = video_frame_due();
@@ -482,7 +493,7 @@ void ARBaseEngine::profiledTick() {
     luma = timings.lumaMs;
     track = timings.trackMs;
   }
-  // updateTracking() = capture (JS) + luma + track.
+  // capture = updateTracking() - luma - track: the JS capture plus the pose read-out.
   webar_profile_record(t1 - t0, (t2 - t1) - luma - track, luma, track, t3 - t2, t4 - t3,
                        t4 - t0, frameCaptured ? 1 : 0, isTracking ? 1 : 0);
 }
