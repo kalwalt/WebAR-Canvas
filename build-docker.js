@@ -66,13 +66,16 @@ if (missingSubmodules.length > 0) {
   ]);
 }
 
+// The timeout keeps a Docker that is still starting, or a remote context waiting for input,
+// from hanging the script.
 const dockerCheck = spawnSync('docker', ['version', '--format', '{{.Server.Version}}'], {
-  encoding: 'utf8'
+  encoding: 'utf8',
+  timeout: 30000
 });
 if (dockerCheck.error || dockerCheck.status !== 0) {
   const reason = dockerCheck.error
     ? dockerCheck.error.message
-    : (dockerCheck.stderr || '').trim().split('\n').pop();
+    : (dockerCheck.stderr || '').trim().split('\n').pop() || `exit code ${dockerCheck.status}`;
   fail([
     'Docker is not available: start Docker Desktop (or the Docker engine) and try again.',
     `docker version: ${reason}`

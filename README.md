@@ -125,6 +125,8 @@ git submodule update --init --recursive
 
 **Windows: check out Filament with LF line endings.** Git for Windows defaults to `core.autocrlf=true`, which gives Filament's shell scripts CRLF line endings; they run in the Linux container and the host tools build fails with `/usr/bin/env: 'bash\r'`. Clone without `--recursive`, then check out the submodules with LF and keep LF for Filament:
 ```bash
+git clone https://github.com/kalwalt/WebAR-Canvas.git
+cd WebAR-Canvas
 git -c core.autocrlf=false submodule update --init --recursive
 git -C third_party/filament config core.autocrlf false
 ```
