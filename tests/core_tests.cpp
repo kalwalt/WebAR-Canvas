@@ -6,6 +6,7 @@
 #include "core/ARAppConfig.h"
 #include "core/AREvents.h"
 
+#include <cmath>
 #include <cstdio>
 #include <string>
 #include <vector>
@@ -90,6 +91,16 @@ static void marker_list_drops_empty_lines() {
   CHECK(parseMarkerList("").empty());
 }
 
+static void delta_is_zero_on_first_tick() { CHECK(computeDeltaSeconds(-1.0, 1000.0) == 0.0); }
+
+static void delta_in_seconds() {
+  CHECK(std::fabs(computeDeltaSeconds(1000.0, 1016.0) - 0.016) < 1e-9);
+}
+
+static void delta_is_clamped() { CHECK(computeDeltaSeconds(1000.0, 6000.0) == 0.1); }
+
+static void delta_never_negative() { CHECK(computeDeltaSeconds(1000.0, 999.0) == 0.0); }
+
 struct TestCase {
   const char *name;
   void (*run)();
@@ -103,6 +114,10 @@ static const TestCase kTests[] = {
     {"config_defaults", config_defaults},
     {"marker_list_splits_lines", marker_list_splits_lines},
     {"marker_list_drops_empty_lines", marker_list_drops_empty_lines},
+    {"delta_is_zero_on_first_tick", delta_is_zero_on_first_tick},
+    {"delta_in_seconds", delta_in_seconds},
+    {"delta_is_clamped", delta_is_clamped},
+    {"delta_never_negative", delta_never_negative},
 };
 
 int main() {

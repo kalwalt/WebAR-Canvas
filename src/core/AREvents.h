@@ -36,4 +36,15 @@ private:
   std::vector<bool> previous;
 };
 
+/**
+ * Seconds between two ticks for update(deltaTime): 0 on the first tick (previousMs < 0) or if
+ * the clock went back, at most maxSeconds (a background tab or a debugger pause would otherwise
+ * make animations jump).
+ */
+inline double computeDeltaSeconds(double previousMs, double nowMs, double maxSeconds = 0.1) {
+  if (previousMs < 0.0 || nowMs <= previousMs) return 0.0;
+  const double seconds = (nowMs - previousMs) / 1000.0;
+  return seconds < maxSeconds ? seconds : maxSeconds;
+}
+
 #endif // AR_EVENTS_H

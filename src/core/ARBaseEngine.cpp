@@ -203,7 +203,7 @@ void ARBaseEngine::tick(void *arg) {
     return;
   }
   app->updateVideoFrame();     // New camera frame only: texture upload, capture, NFT tracking
-  app->update(0.016f);         // App hook: logic and animation
+  app->update(app->nextDeltaTime()); // App hook: logic and animation
   app->draw();                 // App hook: just before the render
   app->getRenderer().render(); // Draw the video background and the scene
 }
@@ -232,7 +232,7 @@ void ARBaseEngine::profiledTick() {
     frameCaptured = false;
   }
   const double t2 = emscripten_get_now();
-  update(0.016f);
+  update(nextDeltaTime());
   draw();
   const double t3 = emscripten_get_now();
   getRenderer().render();
@@ -247,6 +247,13 @@ void ARBaseEngine::profiledTick() {
   // capture = updateTracking() - luma - track: the JS capture plus the pose read-out.
   webar_profile_record(t1 - t0, (t2 - t1) - luma - track, luma, track, t3 - t2, t4 - t3,
                        t4 - t0, frameCaptured ? 1 : 0, isTracking ? 1 : 0);
+}
+
+float ARBaseEngine::nextDeltaTime() {
+  const double now = emscripten_get_now();
+  const double seconds = computeDeltaSeconds(lastTickMs, now);
+  lastTickMs = now;
+  return static_cast<float>(seconds);
 }
 
 void ARBaseEngine::run() {

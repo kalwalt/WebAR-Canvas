@@ -36,7 +36,7 @@ public:
 protected:
   // App hooks, no-ops by default.
   virtual void setup() {}                     // once, at the end of a successful init()
-  virtual void update(float deltaTime) {}     // every tick; seconds since the previous tick
+  virtual void update(float deltaTime) {}     // every tick; seconds since the previous tick (0 first, at most 0.1)
   virtual void draw() {}                      // every tick, after update(), before the render
   virtual void onMarkerFound(int markerIndex) {}
   virtual void onMarkerLost(int markerIndex) {}
@@ -65,9 +65,11 @@ private:
   void profiledTick();
   void updateVideoFrame();
   void dispatchMarkerEvents();
+  float nextDeltaTime(); // seconds since the previous tick (computeDeltaSeconds)
 
   std::unique_ptr<ARNFTTracker> nftTracker;
   bool frameCaptured = false;
+  double lastTickMs = -1.0;
   MarkerEventTracker markerEvents;
   std::vector<bool> markerTracked;
 
