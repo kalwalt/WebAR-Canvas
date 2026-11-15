@@ -79,6 +79,8 @@ private:
   static void tick(void *arg);
   void profiledTick();
   bool frameCaptured = false;
+  int videoTextureWidth = 0;  // size the video texture was allocated with in init()
+  int videoTextureHeight = 0;
   void render();
   void updateVideoTexture();
   void createSkyboxQuad();
