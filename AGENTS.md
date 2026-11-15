@@ -89,6 +89,14 @@ The Emscripten cache lives in the `webar-canvas-emcache-4.0.17` Docker volume, s
 
 Keep `*.sh` files with LF line endings (`.gitattributes`): they run in Linux containers.
 
+Before starting Docker, `build-docker.js` stops with a clear message when a submodule is not checked out (`third_party/filament`, `third_party/WebARKitLib`) or the Docker daemon does not answer. Its tests: `node --test scripts/build-docker.test.js` (no Docker needed; also run in CI).
+
+#### Filament host tools: pitfalls
+- **Same container, same glibc**: the tools must run in `emscripten/emsdk:4.0.17` (Ubuntu 22.04, glibc 2.35). Tools built on a newer distribution fail with `GLIBC_2.38' not found`; `scripts/build-host-tools.sh` builds them in that image with emsdk's clang and `-DUSE_STATIC_LIBCXX=OFF`.
+- **Absolute paths**: `third_party/filament/ImportExecutables-Release.cmake` records the tools' absolute paths, so the WASM build must see the repository at the same path (`/src` in `build-docker.js`, the workspace in CI).
+- **Do not set `FILAMENT_LINUX_IS_MOBILE=ON`** for the host build: Filament then skips the tools (`export given target "matc" which is not built by this project`).
+- **Windows line endings**: with `core.autocrlf=true`, Filament's shell scripts get CRLF (`/usr/bin/env: 'bash\r'`). Check out the Filament submodule with `core.autocrlf=false` in the submodule's own config (README, "Prerequisites & Setup"); never change the global setting. The root `.gitattributes` does not apply inside submodules.
+
 ### Key CMake & Linker Requirements
 - **Web Ports**: Emscripten port dependencies `-sUSE_ZLIB=1` and `-sUSE_LIBJPEG=1` must be provided in both compile and link options.
 - **Embedded Files**: In `CMakeLists.txt`, always format `--embed-file` with an equal sign (`--embed-file=<src>@<dst>`) to prevent CMake from splitting the flag and its destination path during linking.

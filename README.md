@@ -123,6 +123,19 @@ If you previously cloned without `--recursive`:
 git submodule update --init --recursive
 ```
 
+**Windows: check out Filament with LF line endings.** Git for Windows defaults to `core.autocrlf=true`, which gives Filament's shell scripts CRLF line endings; they run in the Linux container and the host tools build fails with `/usr/bin/env: 'bash\r'`. Clone without `--recursive`, then check out the submodules with LF and keep LF for Filament:
+```bash
+git -c core.autocrlf=false submodule update --init --recursive
+git -C third_party/filament config core.autocrlf false
+```
+If Filament is already checked out with CRLF, switch it to LF (this discards local changes inside the submodule):
+```bash
+git -C third_party/filament config core.autocrlf false
+git -C third_party/filament rm -q --cached -r .
+git -C third_party/filament reset -q --hard
+```
+Both only change the submodule's own config, not your global one. Without them, `scripts/build-host-tools.sh` still converts `build/linux/combine-static-libs.sh` to LF so the build works, but the submodule then shows as modified in `git status`.
+
 ### 2. Docker & Node.js
 Building WebAR-Canvas requires:
 - **Docker Desktop** (or Docker engine on Linux).
@@ -149,6 +162,8 @@ node build-docker.js --test
 ```
 
 The first build also compiles the Filament host tools (`matc`, `resgen`, `cmgen`, `glslminifier`) into `third_party/filament/out/host` with `scripts/build-host-tools.sh`; this takes a while once and is skipped afterwards. The same scripts run in CI (`.github/workflows/build.yml`) on every pull request to `dev` and `master`.
+
+Before starting Docker, `build-docker.js` checks that it runs from the repository root with both submodules checked out and that the Docker daemon answers; otherwise it stops at once and says what to do.
 
 ### Build Artifacts
 Upon completion, the following artifacts are generated in `build-wasm/`:

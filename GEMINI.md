@@ -7,6 +7,10 @@ Read it before making changes — it is the canonical source and this file is a 
 
 - **Build WASM**: `node build-docker.js` (or `node build-docker.js -j 8`)
 - **Clean Build**: `node build-docker.js --clean`
+- **Tests**: `node build-docker.js --test` (Node runner `nft_tests` for `ARNFTTracker`, also run in CI)
+- **Host tools / CI**: the first build compiles the Filament host tools (`scripts/build-host-tools.sh`); CI runs the same scripts (`.github/workflows/build.yml`). Pitfalls (glibc, absolute paths, `FILAMENT_LINUX_IS_MOBILE`, CRLF): AGENTS.md section 4
+- **Windows**: check out `third_party/filament` with `core.autocrlf=false` in the submodule's config only (README, "Prerequisites & Setup")
+- **Build runner tests**: `node --test scripts/build-docker.test.js` (checks before Docker starts; no Docker needed)
 - **Serve & Test**: `python -m http.server 8000 --directory build-wasm` (open `http://localhost:8000/videoTest.html`)
 
 ## Key Rules to Remember
