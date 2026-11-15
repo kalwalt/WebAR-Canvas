@@ -38,6 +38,7 @@ By running Google Filament and WebARKitLib side-by-side in native code, WebAR-Ca
 - **Dual Video Pipeline**:
   - **GPU Path**: Streams webcam frames directly to a WebGL texture rendered on an unlit full-screen quad in normalized device coordinates (`vertexDomain: device`).
   - **CPU Path**: Fast RGBA frame capture and persistent grayscale luminance conversion (`WebARKitVideoLuma`) for point matching and template tracking.
+  - Where the browser supports `requestVideoFrameCallback`, both paths run once per new camera frame, not on every display frame.
 - **Precise Coordinate Alignment**: ARToolKit calibration intrinsics (`camera_para.dat`) compute an exact right-handed OpenGL frustum (`arglCameraFrustumRH`) hooked directly into Filament's `camera->setCustomProjection()`, aligned with marker poses converted via `arglCameraViewRH`.
 - **Responsive 1:1 Viewport**: Auto-resizing WebGL drawing buffer and CSS `object-fit: contain` preserve exact 4:3 camera proportions across any screen size.
 - **Cross-Platform Toolchain**: Containerized compilation using Docker (`build-docker.js`) for seamless builds on Windows, Linux, and macOS.

@@ -168,6 +168,22 @@ static void no_log_line_per_tracked_frame() {
   CHECK(t.getLogLevel() == logLevel);
 }
 
+static void reports_update_timings() {
+  ARNFTTracker t;
+  CHECK(t.getLastUpdateTimings().lumaMs == 0.0 && t.getLastUpdateTimings().trackMs == 0.0);
+  // update() before setup() does no work, so it measures nothing.
+  CHECK(t.update() == 0);
+  CHECK(t.getLastUpdateTimings().lumaMs == 0.0 && t.getLastUpdateTimings().trackMs == 0.0);
+  CHECK(trackPinball(t));
+  t.update();
+  const NFTUpdateTimings u = t.getLastUpdateTimings();
+  // A 2000x1500 frame: both the luma conversion and the core take measurable time.
+  CHECK(u.lumaMs > 0.0 && u.trackMs > 0.0);
+  CHECK(std::isfinite(u.lumaMs) && std::isfinite(u.trackMs));
+  t.teardown();
+  CHECK(t.getLastUpdateTimings().lumaMs == 0.0 && t.getLastUpdateTimings().trackMs == 0.0);
+}
+
 struct TestCase {
   const char *name;
   void (*run)();
@@ -185,6 +201,7 @@ static const TestCase kTests[] = {
     {"re_setup_checks_the_camera", re_setup_checks_the_camera},
     {"setup_rejects_an_empty_frame", setup_rejects_an_empty_frame},
     {"no_log_line_per_tracked_frame", no_log_line_per_tracked_frame},
+    {"reports_update_timings", reports_update_timings},
 };
 
 int main() {

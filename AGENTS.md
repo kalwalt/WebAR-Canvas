@@ -24,6 +24,8 @@ The entire application lifecycle, computer vision tracking, camera projection ca
 ### B. Dual Video Pipeline
 - **GPU Path (Rendering)**: The HTML `<video>` stream is uploaded directly to a WebGL texture via `update_webgl_texture` in `ARBaseEngine.cpp` and rendered as a background quad using an unlit Filament material (`video_background.fil`).
 - **CPU Path (Tracking)**: Frames are ingested into CPU memory (`videoFrame` RGBA and `videoLuma` grayscale luminance) for KPM feature matching and AR2 template tracking.
+- **Frame pacing**: both paths run once per new camera frame (`requestVideoFrameCallback`, in `ARBaseEngine::updateVideoFrame()`), not once per display frame; `update()` and `render()` run every display frame. Without `requestVideoFrameCallback`, or when it has not fired for 250 ms while the video plays, every tick processes the frame.
+- **KPM on the main thread**: while no marker is tracked, `ARToolKitNFTCore` runs KPM detection on every frame. The 200 ms detection interval only limits re-detection while some markers are tracked and others are not; with a single marker, KPM stops once it is tracked. A KPM pass takes tens of milliseconds, so searching is the slowest state of the app (#4).
 
 ### C. Camera Projection & Coordinate Alignment
 - ARToolKit intrinsic parameters (`camera_para.dat`) are loaded using `arParamLoad()` and resized with `arParamChangeSize()`.
@@ -148,3 +150,6 @@ Allowed types: `feat`, `fix`, `perf`, `doc`, `refactor`, `test`, `style`, `chore
    - NFT marker loaded: `NFT marker 0: 893 x 1117 at 120 dpi`.
    - NFT Camera Frustum projection matrix printed in 4x4 column-major format.
    - Smooth continuous frame rendering without WASM runtime exceptions.
+
+### Profiling the frame pipeline
+Set `Module.webarProfile = { enabled: true }` in the page (it is checked on every tick). Every tick then appends a row to `Module.webarProfile.samples`, with the column names in `Module.webarProfile.columns`: texture upload, capture (the JS capture plus the pose read-out; `drawImage`, `getImageData` and the heap copy also on their own), luma, tracking, app update, render, whole tick (milliseconds of main-thread wall time; GPU work is asynchronous and not included), and whether a frame was captured and the marker tracked. Samples accumulate while it is on. Without it, `tick()` runs unprofiled. `ARNFTTracker::getLastUpdateTimings()` gives the luma and tracking times of the last `update()`.
