@@ -21,13 +21,26 @@ The entire application lifecycle, computer vision tracking, camera projection ca
 - **No Embind in Engine Core**: The C++ engine code does not rely on Emscripten Embind (`<emscripten/bind.h>`) or `emscripten::val` for internal data structures. Matrices, poses, and tracking states are native C++ arrays and structs.
 - **RTTI Disabled (`-fno-rtti`)**: Filament is built with `-fno-rtti`. All engine and NFT C++ code must compile cleanly without RTTI.
 
-### B. Dual Video Pipeline
-- **GPU Path (Rendering)**: The HTML `<video>` stream is uploaded directly to a WebGL texture via `update_webgl_texture` in `ARBaseEngine.cpp` and rendered as a background quad using an unlit Filament material (`video_background.fil`).
+### B. Renderer Interface
+- `ARBaseEngine` draws only through `IARRenderer` (`src/core/IARRenderer.h`: `init`, `setProjection`, `updateVideoTexture`, `render`); it owns the main loop, the CPU video path, the tracker and the profiling probe (#13).
+- `FilamentRenderer` (`src/core/FilamentRenderer.*`) is the backend: the WebGL 2 context, the Filament engine, scene, view and camera, the video texture and background quad, and the render call. The app adds its own Filament entities to its scene.
+- Keep Filament types out of `ARBaseEngine`; renderer-specific code goes in the renderer.
+
+### C. App API (`ARBaseApp`)
+- Apps derive from `ARBaseApp` (`src/core/ARBaseApp.h`) and override `setup()` (once, after a successful init), `update(float deltaTime)`, `draw()` (every tick, after `update()`, before the render), `onMarkerFound(int)` and `onMarkerLost(int)`; all are no-ops by default.
+- Each tick: on a new camera frame the texture upload, capture, tracking and marker events; then `update()`, `draw()` and the render.
+- `update(float deltaTime)` gets the real elapsed time in seconds since the previous tick: 0 on the first tick, at most 0.1 (after a background tab or a debugger pause).
+- Marker events fire for every marker index when its tracked state changes, from the raw tracking state (no debounce). `getIsTracking()` / `getModelViewMatrix()` describe marker 0; a per-index pose getter is planned with `ARAnchor`.
+- Configuration is plain data, `ARAppConfig` (`src/core/ARAppConfig.h`): canvas selector, camera frame size, camera parameter file, marker paths. `AR_APP_MAIN(App, w, h, marker)` only fills one; `runApp()` then applies `Module.webarConfig` from the page (`canvasSelector`, `cameraParamPath`, `videoWidth`, `videoHeight`, `markers`) before `init()`. `runApp()` returns 1 and starts no loop if init fails.
+- `getEngine()` / `getScene()` / `getCamera()` return Filament objects and exist only with `WEBAR_RENDERER_FILAMENT` (set by `CMakeLists.txt`); an app that uses them is a Filament app. `ARBaseEngine` itself depends only on `IARRenderer`: the backend is created by `ARBaseApp::createRenderer()`.
+
+### D. Dual Video Pipeline
+- **GPU Path (Rendering)**: The HTML `<video>` stream is uploaded directly to a WebGL texture via `update_webgl_texture` in `FilamentRenderer.cpp` and rendered as a background quad using an unlit Filament material (`video_background.fil`).
 - **CPU Path (Tracking)**: Frames are ingested into CPU memory (`videoFrame` RGBA and `videoLuma` grayscale luminance) for KPM feature matching and AR2 template tracking.
-- **Frame pacing**: both paths run once per new camera frame (`requestVideoFrameCallback`, in `ARBaseEngine::updateVideoFrame()`), not once per display frame; `update()` and `render()` run every display frame. Without `requestVideoFrameCallback`, or when it has not fired for 250 ms while the video plays, every tick processes the frame.
+- **Frame pacing**: both paths run once per new camera frame (`requestVideoFrameCallback`, in `ARBaseEngine::updateVideoFrame()`), not once per display frame; `update()`, `draw()` and the render run every display frame. Without `requestVideoFrameCallback`, or when it has not fired for 250 ms while the video plays, every tick processes the frame.
 - **KPM on the main thread**: while no marker is tracked, `ARToolKitNFTCore` runs KPM detection on every frame. The 200 ms detection interval only limits re-detection while some markers are tracked and others are not; with a single marker, KPM stops once it is tracked. A KPM pass takes tens of milliseconds, so searching is the slowest state of the app (#4).
 
-### C. Camera Projection & Coordinate Alignment
+### E. Camera Projection & Coordinate Alignment
 - ARToolKit intrinsic parameters (`camera_para.dat`) are loaded using `arParamLoad()` and resized with `arParamChangeSize()`.
 - `arglCameraFrustumRH()` calculates an OpenGL right-handed column-major projection matrix (`cameraLens[16]`).
 - This matrix is passed directly to Filament's camera via:
@@ -45,9 +58,17 @@ Wasm_AR_Engine/
 ├── assets/                  # Embedded assets (camera_para.dat, pinball.fset, pinball.fset3, pinball.iset)
 ├── materials/               # Source shaders (.mat) compiled to .fil with matc
 ├── src/
-│   ├── ARBaseEngine.h       # Base engine header (Filament core + NFT tracker integration)
-│   ├── ARBaseEngine.cpp     # Base engine implementation (WebGL context, background quad, main loop)
-│   ├── main.cpp             # WebARApp application implementation & entry point
+│   ├── core/                # Framework core
+│   │   ├── ARBaseApp.h/.cpp        # The app base class, AR_APP_MAIN, Module.webarConfig
+│   │   ├── ARAppConfig.h           # ARAppConfig: what an app needs to start
+│   │   ├── AREvents.h              # Marker found/lost event tracking
+│   │   ├── ARBaseEngine.h/.cpp     # Main loop, CPU video path, NFT tracker, profiling probe
+│   │   ├── IARRenderer.h           # Rendering backend interface
+│   │   └── FilamentRenderer.h/.cpp # Filament backend: WebGL 2 context, scene, video background
+│   ├── app/                 # The application (user code)
+│   │   ├── App.h            # class App : public ARBaseApp (the demo: a cube on the marker)
+│   │   └── App.cpp          # App's hooks: setup(), update(), marker events
+│   ├── main.cpp             # Entry point: AR_APP_MAIN(App, 640, 480, "/assets/markers/pinball")
 │   ├── shell.html           # Emscripten HTML shell template
 │   └── nft/                 # Native C++ NFT tracking subsystem
 │       ├── ARNFTTracker.h   # C++ NFT tracker interface
@@ -85,7 +106,9 @@ node build-docker.js --test
 `build-docker.js` runs these scripts inside the container, the same ones the CI runs (`.github/workflows/build.yml`):
 - `scripts/build-host-tools.sh`: builds the Filament host tools (`matc`, `resgen`, `cmgen`, `glslminifier`) in `third_party/filament/out/host` with emsdk's clang, once; it skips them when already built.
 - `scripts/build-wasm.sh [jobs] [target]`: configures `build-wasm/` and builds a target (`WebAR-Canvas` by default).
-- `scripts/test-wasm.sh` (with `--test`): builds `nft_tests` and runs it with Node. It drives `ARNFTTracker` on WebARKitLib's fixtures (`tests/data`, embedded at `/data`, including `pinball-demo.jpg`), with no browser or webcam; the exit code is the number of failed checks.
+- `scripts/test-wasm.sh` (with `--test`): builds and runs two Node runners, with no browser or webcam; the exit code is the total number of failed checks.
+  - `nft_tests` (`tests/nft_tests.cpp`) drives `ARNFTTracker` on WebARKitLib's fixtures (`tests/data`, embedded at `/data`, including `pinball-demo.jpg`).
+  - `core_tests` (`tests/core_tests.cpp`) tests the pure C++ parts of `src/core/` (no Filament, no tracker), such as `MarkerEventTracker`.
 
 The Emscripten cache lives in the `webar-canvas-emcache-4.0.17` Docker volume, so the libjpeg and zlib ports are downloaded once.
 
@@ -137,7 +160,7 @@ Allowed types: `feat`, `fix`, `perf`, `doc`, `refactor`, `test`, `style`, `chore
 
 ## 6. Testing & Verification
 
-1. Compile the WebAssembly build and run the tests using `node build-docker.js --test` (last line: `N checks, 0 failed`). Changes to `ARNFTTracker` need a test in `tests/nft_tests.cpp`.
+1. Compile the WebAssembly build and run the tests using `node build-docker.js --test` (each runner ends with `N checks, 0 failed`). Changes to `ARNFTTracker` need a test in `tests/nft_tests.cpp`; pure C++ logic in `src/core/` gets its tests in `tests/core_tests.cpp`.
 2. Start a local HTTP server serving `build-wasm/`:
    ```bash
    python -m http.server 8000 --directory build-wasm

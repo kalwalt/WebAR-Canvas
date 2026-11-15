@@ -91,12 +91,21 @@ configure_file(
     @ONLY
 )
 
-set(SOURCES src/main.cpp src/ARBaseEngine.cpp ${MATERIAL_OUTPUT} ${CUBE_MATERIAL_OUTPUT})
+set(SOURCES
+    src/main.cpp
+    src/app/App.cpp
+    src/core/ARBaseEngine.cpp
+    src/core/ARBaseApp.cpp
+    src/core/FilamentRenderer.cpp
+    ${MATERIAL_OUTPUT}
+    ${CUBE_MATERIAL_OUTPUT}
+)
 add_executable(${PROJECT_NAME} ${SOURCES})
 
 # --- Include Directories ---
-target_include_directories(${PROJECT_NAME} PRIVATE 
+target_include_directories(${PROJECT_NAME} PRIVATE
     src/
+    src/core/
     src/nft/
     ${CMAKE_CURRENT_BINARY_DIR}/generated
     ${FILAMENT_SOURCE_DIR}/include
@@ -116,6 +125,9 @@ target_link_libraries(${PROJECT_NAME} PUBLIC
     geometry
     ARNFTTracker
 )
+
+# The Filament backend: enables the Filament getters of ARBaseApp (getEngine, getScene, getCamera).
+target_compile_definitions(${PROJECT_NAME} PRIVATE WEBAR_RENDERER_FILAMENT=1)
 
 set_target_properties(${PROJECT_NAME} PROPERTIES OUTPUT_NAME "videoTest")
 set_target_properties(${PROJECT_NAME} PROPERTIES SUFFIX ".html")
@@ -145,8 +157,8 @@ target_link_options(${PROJECT_NAME} PRIVATE
 
 add_dependencies(${PROJECT_NAME} filament ARNFTTracker)
 
-# --- Node test runner for ARNFTTracker (scripts/test-wasm.sh, node build-docker.js --test) ---
-option(WEBAR_CANVAS_BUILD_TESTS "Build the Node test runner (nft_tests)" OFF)
+# --- Node test runners (scripts/test-wasm.sh, node build-docker.js --test) ---
+option(WEBAR_CANVAS_BUILD_TESTS "Build the Node test runners (nft_tests, core_tests)" OFF)
 if(WEBAR_CANVAS_BUILD_TESTS)
     add_executable(nft_tests tests/nft_tests.cpp)
     target_link_libraries(nft_tests PRIVATE ARNFTTracker)
@@ -161,5 +173,15 @@ if(WEBAR_CANVAS_BUILD_TESTS)
         "-sUSE_ZLIB=1"
         # WebARKitLib's NFT fixtures: camera_para.dat, pinball.{iset,fset,fset3}, pinball-demo.jpg
         "--embed-file=${WEBARKITLIB_DIR}/tests/data@/data"
+    )
+
+    # Pure C++ parts of the framework core (src/core/AREvents.h, ARAppConfig.h): no Filament, no tracker.
+    add_executable(core_tests tests/core_tests.cpp)
+    target_include_directories(core_tests PRIVATE src/)
+    set_target_properties(core_tests PROPERTIES SUFFIX ".js")
+    target_link_options(core_tests PRIVATE
+        "-sENVIRONMENT=node"
+        "-sEXIT_RUNTIME=1"
+        "-sASSERTIONS=1"
     )
 endif()
