@@ -108,7 +108,7 @@ node build-docker.js --test
 ```
 
 `build-docker.js` runs these scripts inside the container, the same ones the CI runs (`.github/workflows/build.yml`):
-- `scripts/build-host-tools.sh`: builds the Filament host tools (`matc`, `resgen`, `cmgen`, `glslminifier`) in `third_party/filament/out/host` with emsdk's clang, once; it skips them when already built.
+- `scripts/build-host-tools.sh`: builds the Filament host tools (`matc`, `resgen`, `cmgen`, `glslminifier`, and `uberz` for the ubershader archive that glTF loading needs) in `third_party/filament/out/host` with emsdk's clang, once; it builds only the missing ones. When the list changes, bump the `-vN` suffix of the CI cache key in `.github/workflows/build.yml` (and `pages.yml`).
 - `scripts/build-wasm.sh [jobs] [target]`: configures `build-wasm/` and builds a target (`WebAR-Canvas` by default).
 - `scripts/test-wasm.sh` (with `--test`): builds and runs two Node runners, with no browser or webcam; the exit code is the total number of failed checks.
   - `nft_tests` (`tests/nft_tests.cpp`) drives `ARNFTTracker` on WebARKitLib's fixtures (`tests/data`, embedded at `/data`, including `pinball-demo.jpg`).

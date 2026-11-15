@@ -41,8 +41,10 @@ jobs:
             third_party/filament/out/host/tools/resgen/resgen
             third_party/filament/out/host/tools/cmgen/cmgen
             third_party/filament/out/host/tools/glslminifier/glslminifier
+            third_party/filament/out/host/tools/uberz/uberz
             third_party/filament/ImportExecutables-Release.cmake
-          key: filament-host-tools-${{ steps.filament.outputs.sha }}-emsdk-4.0.17
+          # -v2: uberz added (gltfio). Bump the suffix whenever the list of tools changes.
+          key: filament-host-tools-${{ steps.filament.outputs.sha }}-emsdk-4.0.17-v2
 
       - name: Build the Filament host tools
         run: sh scripts/build-host-tools.sh

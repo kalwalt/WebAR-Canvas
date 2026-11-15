@@ -165,7 +165,7 @@ node build-docker.js --clean
 node build-docker.js --test
 ```
 
-The first build also compiles the Filament host tools (`matc`, `resgen`, `cmgen`, `glslminifier`) into `third_party/filament/out/host` with `scripts/build-host-tools.sh`; this takes a while once and is skipped afterwards. The same scripts run in CI (`.github/workflows/build.yml`) on every pull request to `dev` and `master`.
+The first build also compiles the Filament host tools (`matc`, `resgen`, `cmgen`, `glslminifier`, `uberz`) into `third_party/filament/out/host` with `scripts/build-host-tools.sh`; this takes a while once and is skipped afterwards. The same scripts run in CI (`.github/workflows/build.yml`) on every pull request to `dev` and `master`.
 
 Before starting Docker, `build-docker.js` checks that it runs from the repository root with both submodules checked out and that the Docker daemon answers; otherwise it stops at once and says what to do.
 
