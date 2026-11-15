@@ -4,6 +4,7 @@
 #include "core/ARAnchor.h"
 #include "core/ARAppConfig.h"
 #include "core/ARBaseEngine.h"
+#include "core/ARPrimitives.h"
 
 #include <string>
 #include <vector>
@@ -17,7 +18,11 @@ class FilamentRenderer;
 namespace filament {
 class Camera;
 class Engine;
+class IndexBuffer;
+class Material;
+class MaterialInstance;
 class Scene;
+class VertexBuffer;
 } // namespace filament
 
 /**
@@ -37,6 +42,8 @@ class Scene;
  */
 class ARBaseApp : public ARBaseEngine {
 public:
+  ~ARBaseApp() override; // releases the entities created with the create* helpers
+
   // Applies Module.webarConfig (if the page set one) over config, then init() and the main
   // loop. Returns 1 if init() fails ("Error during initialization" on stderr); otherwise the
   // loop runs and never returns.
@@ -84,13 +91,33 @@ protected:
 
   void beforeUpdate() override;
 
+  // Primitive geometry (ARPrimitives.h) as renderable entities with the unlit vertex-colour
+  // material, added to the scene, in millimetres. ARBaseApp owns and releases them; the
+  // returned entity has no transform component (attach it, or parent it, as needed).
+  // Invalid entity if called before init() or if the material cannot be loaded.
+  utils::Entity createBox(float sizeX, float sizeY, float sizeZ, const float faceColors[6][4]);
+  utils::Entity createCube(float size, const float color[4]);
+  utils::Entity createPlane(float sizeX, float sizeY, const float color[4]);
+  utils::Entity createSphere(float radius, const float color[4], int segments = 24,
+                             int rings = 16);
+
 private:
   struct MarkerBinding {
     utils::Entity entity;
     int markerIndex;
     ARAnchor anchor;
   };
+  struct OwnedMesh {
+    utils::Entity entity;
+    filament::VertexBuffer *vertices;
+    filament::IndexBuffer *indices;
+  };
+  utils::Entity createMeshEntity(const ARMesh &mesh);
+
   std::vector<MarkerBinding> markerBindings;
+  std::vector<OwnedMesh> ownedMeshes;
+  filament::Material *vertexColorMaterial = nullptr;
+  filament::MaterialInstance *vertexColorInstance = nullptr;
   FilamentRenderer *filamentBackend = nullptr; // the object behind getRenderer()
 #endif
 };

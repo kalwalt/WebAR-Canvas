@@ -7,6 +7,7 @@
 #include "core/ARAppConfig.h"
 #include "core/AREvents.h"
 #include "core/ARInput.h"
+#include "core/ARPrimitives.h"
 
 #include <cmath>
 #include <cstdio>
@@ -207,6 +208,73 @@ static void client_to_canvas_css_scale() {
   CHECK(near(x, 320.0f) && near(y, 240.0f));
 }
 
+// --- ARPrimitives: geometry for createBox / createPlane / createSphere ---
+
+static const float kColors[6][4] = {{1, 0, 0, 1}, {0, 1, 1, 1}, {1, 1, 0, 1},
+                                    {0, 0, 1, 1}, {1, 0, 1, 1}, {0, 1, 0, 1}};
+
+static bool indicesInRange(const ARMesh &mesh) {
+  for (uint16_t i : mesh.indices) {
+    if (i >= mesh.vertices.size()) return false;
+  }
+  return mesh.indices.size() % 3 == 0;
+}
+
+static void box_counts() {
+  const ARMesh box = makeBox(80.0f, 60.0f, 40.0f, kColors);
+  CHECK(box.vertices.size() == 24 && box.indices.size() == 36);
+  float minZ = 1e9f, maxZ = -1e9f, maxX = -1e9f, maxY = -1e9f;
+  for (const ARVertex &v : box.vertices) {
+    minZ = std::fmin(minZ, v.position[2]);
+    maxZ = std::fmax(maxZ, v.position[2]);
+    maxX = std::fmax(maxX, v.position[0]);
+    maxY = std::fmax(maxY, v.position[1]);
+  }
+  CHECK(near(minZ, 0.0f) && near(maxZ, 40.0f)); // base on z = 0
+  CHECK(near(maxX, 40.0f) && near(maxY, 30.0f)); // centred in x and y
+  // First face (+Z, the top, z = sizeZ) in the first colour, as the demo cube.
+  CHECK(near(box.vertices[0].position[2], 40.0f) && box.vertices[0].color[0] == 1.0f &&
+        box.vertices[0].color[1] == 0.0f);
+}
+
+static void plane_counts() {
+  const float color[4] = {0.5f, 0.5f, 0.5f, 1.0f};
+  const ARMesh plane = makePlane(100.0f, 50.0f, color);
+  CHECK(plane.vertices.size() == 4 && plane.indices.size() == 6);
+  bool flat = true;
+  for (const ARVertex &v : plane.vertices) flat = flat && v.position[2] == 0.0f;
+  CHECK(flat);
+}
+
+static void sphere_counts_and_radius() {
+  const float color[4] = {1, 1, 1, 1};
+  const ARMesh sphere = makeSphere(25.0f, 8, 4, color);
+  CHECK(sphere.vertices.size() == (4 + 1) * (8 + 1));
+  CHECK(sphere.indices.size() == 4 * 8 * 6);
+  bool onSurface = true;
+  for (const ARVertex &v : sphere.vertices) {
+    const float r = std::sqrt(v.position[0] * v.position[0] + v.position[1] * v.position[1] +
+                              v.position[2] * v.position[2]);
+    onSurface = onSurface && std::fabs(r - 25.0f) < 1e-3f;
+  }
+  CHECK(onSurface);
+}
+
+static void sphere_minimum_segments() {
+  const float color[4] = {1, 1, 1, 1};
+  const ARMesh small = makeSphere(1.0f, 1, 1, color);
+  const ARMesh minimum = makeSphere(1.0f, 3, 2, color);
+  CHECK(small.vertices.size() == minimum.vertices.size());
+  CHECK(small.indices.size() == minimum.indices.size());
+}
+
+static void primitive_indices_in_range() {
+  const float color[4] = {1, 1, 1, 1};
+  CHECK(indicesInRange(makeBox(1.0f, 1.0f, 1.0f, kColors)));
+  CHECK(indicesInRange(makePlane(1.0f, 1.0f, color)));
+  CHECK(indicesInRange(makeSphere(1.0f, 24, 16, color)));
+}
+
 struct TestCase {
   const char *name;
   void (*run)();
@@ -234,6 +302,11 @@ static const TestCase kTests[] = {
     {"client_to_canvas_corners", client_to_canvas_corners},
     {"client_to_canvas_with_offset", client_to_canvas_with_offset},
     {"client_to_canvas_css_scale", client_to_canvas_css_scale},
+    {"box_counts", box_counts},
+    {"plane_counts", plane_counts},
+    {"sphere_counts_and_radius", sphere_counts_and_radius},
+    {"sphere_minimum_segments", sphere_minimum_segments},
+    {"primitive_indices_in_range", primitive_indices_in_range},
 };
 
 int main() {

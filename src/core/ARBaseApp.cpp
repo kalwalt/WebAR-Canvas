@@ -2,15 +2,28 @@
 #include "nft/ARNFTTracker.h"
 #ifdef WEBAR_RENDERER_FILAMENT
 #include "core/FilamentRenderer.h"
+#include <filament/Box.h>
 #include <filament/Engine.h>
+#include <filament/IndexBuffer.h>
+#include <filament/Material.h>
+#include <filament/MaterialInstance.h>
+#include <filament/RenderableManager.h>
+#include <filament/Scene.h>
 #include <filament/TransformManager.h>
+#include <filament/VertexBuffer.h>
 #include <math/mat4.h>
+#include <utils/EntityManager.h>
 #endif
 
 #include <emscripten.h>
 
 #include <algorithm>
+#include <cstddef>
+#include <cstdio>
 #include <cstdlib>
+#include <cstring>
+#include <fstream>
+#include <iterator>
 #include <iostream>
 #include <string>
 
@@ -130,6 +143,111 @@ void ARBaseApp::beforeUpdate() {
     }
     tcm.setTransform(instance, transform);
   }
+}
+
+utils::Entity ARBaseApp::createMeshEntity(const ARMesh &mesh) {
+  filament::Engine *engine = getEngine();
+  if (!engine || mesh.vertices.empty() || mesh.indices.empty()) return utils::Entity();
+
+  // The unlit vertex-colour material of the demo cube, loaded once.
+  if (!vertexColorMaterial) {
+    std::ifstream is("/assets/ar_cube.fil", std::ios::binary);
+    if (!is) {
+      printf("ERROR: Failed to open /assets/ar_cube.fil for the primitive helpers\n");
+      return utils::Entity();
+    }
+    std::vector<char> package((std::istreambuf_iterator<char>(is)),
+                              std::istreambuf_iterator<char>());
+    vertexColorMaterial =
+        filament::Material::Builder().package(package.data(), package.size()).build(*engine);
+    vertexColorInstance = vertexColorMaterial->createInstance();
+  }
+
+  using filament::VertexBuffer;
+  using filament::IndexBuffer;
+  const size_t vertexBytes = mesh.vertices.size() * sizeof(ARVertex);
+  const size_t indexBytes = mesh.indices.size() * sizeof(uint16_t);
+  // Filament uploads asynchronously: hand it copies that it frees when done.
+  void *vertexData = std::malloc(vertexBytes);
+  void *indexData = std::malloc(indexBytes);
+  std::memcpy(vertexData, mesh.vertices.data(), vertexBytes);
+  std::memcpy(indexData, mesh.indices.data(), indexBytes);
+  auto release = [](void *buffer, size_t, void *) { std::free(buffer); };
+
+  VertexBuffer *vb = VertexBuffer::Builder()
+                         .vertexCount(static_cast<uint32_t>(mesh.vertices.size()))
+                         .bufferCount(1)
+                         .attribute(filament::VertexAttribute::POSITION, 0,
+                                    VertexBuffer::AttributeType::FLOAT3,
+                                    offsetof(ARVertex, position), sizeof(ARVertex))
+                         .attribute(filament::VertexAttribute::COLOR, 0,
+                                    VertexBuffer::AttributeType::FLOAT4,
+                                    offsetof(ARVertex, color), sizeof(ARVertex))
+                         .build(*engine);
+  vb->setBufferAt(*engine, 0, VertexBuffer::BufferDescriptor(vertexData, vertexBytes, release));
+  IndexBuffer *ib = IndexBuffer::Builder()
+                        .indexCount(static_cast<uint32_t>(mesh.indices.size()))
+                        .bufferType(IndexBuffer::IndexType::USHORT)
+                        .build(*engine);
+  ib->setBuffer(*engine, IndexBuffer::BufferDescriptor(indexData, indexBytes, release));
+
+  filament::math::float3 lo = {1e30f, 1e30f, 1e30f}, hi = {-1e30f, -1e30f, -1e30f};
+  for (const ARVertex &v : mesh.vertices) {
+    for (int i = 0; i < 3; ++i) {
+      lo[i] = std::min(lo[i], v.position[i]);
+      hi[i] = std::max(hi[i], v.position[i]);
+    }
+  }
+  utils::Entity entity = utils::EntityManager::get().create();
+  filament::RenderableManager::Builder(1)
+      .boundingBox({lo, hi})
+      .material(0, vertexColorInstance)
+      .geometry(0, filament::RenderableManager::PrimitiveType::TRIANGLES, vb, ib)
+      .culling(false)
+      .receiveShadows(false)
+      .castShadows(false)
+      .build(*engine, entity);
+  getScene()->addEntity(entity);
+  ownedMeshes.push_back({entity, vb, ib});
+  return entity;
+}
+
+utils::Entity ARBaseApp::createBox(float sizeX, float sizeY, float sizeZ,
+                                   const float faceColors[6][4]) {
+  return createMeshEntity(makeBox(sizeX, sizeY, sizeZ, faceColors));
+}
+
+utils::Entity ARBaseApp::createCube(float size, const float color[4]) {
+  float faces[6][4];
+  for (auto &face : faces) {
+    for (int i = 0; i < 4; ++i) face[i] = color[i];
+  }
+  return createMeshEntity(makeBox(size, size, size, faces));
+}
+
+utils::Entity ARBaseApp::createPlane(float sizeX, float sizeY, const float color[4]) {
+  return createMeshEntity(makePlane(sizeX, sizeY, color));
+}
+
+utils::Entity ARBaseApp::createSphere(float radius, const float color[4], int segments,
+                                      int rings) {
+  return createMeshEntity(makeSphere(radius, segments, rings, color));
+}
+
+ARBaseApp::~ARBaseApp() {
+  filament::Engine *engine = getEngine();
+  if (!engine) return;
+  auto &tcm = engine->getTransformManager();
+  for (OwnedMesh &mesh : ownedMeshes) {
+    if (filament::Scene *scene = getScene()) scene->remove(mesh.entity);
+    engine->destroy(mesh.entity); // the renderable component
+    if (tcm.hasComponent(mesh.entity)) tcm.destroy(mesh.entity);
+    utils::EntityManager::get().destroy(mesh.entity);
+    engine->destroy(mesh.vertices);
+    engine->destroy(mesh.indices);
+  }
+  if (vertexColorInstance) engine->destroy(vertexColorInstance);
+  if (vertexColorMaterial) engine->destroy(vertexColorMaterial);
 }
 #else
 #error "No rendering backend: build with WEBAR_RENDERER_FILAMENT (set by CMakeLists.txt)."

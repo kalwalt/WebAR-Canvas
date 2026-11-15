@@ -212,6 +212,9 @@ protected:
         // Once, when the renderer and the tracker are ready: create your entities.
         // getEngine() / getScene() / getCamera() give the Filament objects (Filament build).
         // attachToMarker(entity, 0) keeps an entity on marker 0, centred, hidden while lost.
+        const float red[4] = {1, 0, 0, 1};
+        utils::Entity cube = createCube(80.0f, red);  // also createBox, createPlane, createSphere
+        attachToMarker(cube, 0);
     }
 
     void update(float deltaTime) override {
