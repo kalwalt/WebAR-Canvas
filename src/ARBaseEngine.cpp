@@ -18,10 +18,8 @@
 #undef WEBGL
 #endif
 
-// Helper JavaScript to update the WebGL texture from the <video> tag.
-// The texture is allocated at allocWidth x allocHeight in init(): frames of that size update
-// it in place (texSubImage2D); a camera that delivers another size reallocates it once.
-EM_JS(void, update_webgl_texture, (int textureId, int allocWidth, int allocHeight), {
+// Helper JavaScript to update the WebGL texture from the <video> tag
+EM_JS(void, update_webgl_texture, (int textureId), {
   const video = document.getElementById('ar-video');
 
   // Try to get the GL context from multiple sources
@@ -46,17 +44,8 @@ EM_JS(void, update_webgl_texture, (int textureId, int allocWidth, int allocHeigh
       return;
     }
 
-    if (!Module._videoTexSize) {
-      Module._videoTexSize = [allocWidth, allocHeight];
-    }
-    var size = Module._videoTexSize;
     gl.bindTexture(gl.TEXTURE_2D, glTexture);
-    if (video.videoWidth === size[0] && video.videoHeight === size[1]) {
-      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, gl.RGB, gl.UNSIGNED_BYTE, video);
-    } else {
-      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, gl.RGB, gl.UNSIGNED_BYTE, video);
-      Module._videoTexSize = [video.videoWidth, video.videoHeight];
-    }
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, gl.RGB, gl.UNSIGNED_BYTE, video);
     gl.bindTexture(gl.TEXTURE_2D, null);
     // Optional: verify error
     const err = gl.getError();
@@ -294,8 +283,6 @@ bool ARBaseEngine::init(const char *canvasId, int width, int height,
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, width, height, 0, GL_RGB,
                  GL_UNSIGNED_BYTE, nullptr);
-    videoTextureWidth = width;
-    videoTextureHeight = height;
 
     // Create External Texture importing the native WebGL texture
     videoTexture = Texture::Builder()
@@ -373,7 +360,7 @@ void ARBaseEngine::createSkyboxQuad() {
 void ARBaseEngine::updateVideoTexture() {
   // Retrieve the internal WebGL texture ID and update it via JS
   if (videoTexture) {
-    update_webgl_texture(nativeTextureId, videoTextureWidth, videoTextureHeight);
+    update_webgl_texture(nativeTextureId); // Pass the real ID
   }
 }
 
