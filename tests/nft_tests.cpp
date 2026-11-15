@@ -180,6 +180,8 @@ static void reports_update_timings() {
   // A 2000x1500 frame: both the luma conversion and the core take measurable time.
   CHECK(u.lumaMs > 0.0 && u.trackMs > 0.0);
   CHECK(std::isfinite(u.lumaMs) && std::isfinite(u.trackMs));
+  t.teardown();
+  CHECK(t.getLastUpdateTimings().lumaMs == 0.0 && t.getLastUpdateTimings().trackMs == 0.0);
 }
 
 struct TestCase {
