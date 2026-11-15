@@ -95,7 +95,7 @@ WebAR-Canvas/
 │   ├── video_background.mat    # Fullscreen device-domain video quad shader
 │   └── ar_cube.mat             # Unlit vertex-colored 3D entity shader
 ├── src/                        # Native C++ source code
-│   ├── core/ARBaseEngine.h/.cpp # Core engine: WebGL context, dual pipeline, main loop
+│   ├── core/                   # Engine (main loop, tracking) and the IARRenderer / FilamentRenderer backend
 │   ├── app/App.h/.cpp          # The application: the 3D AR scene (a cube on the marker)
 │   ├── main.cpp                # Entry point
 │   ├── shell.html              # Emscripten HTML shell template

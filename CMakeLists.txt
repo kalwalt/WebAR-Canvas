@@ -95,6 +95,7 @@ set(SOURCES
     src/main.cpp
     src/app/App.cpp
     src/core/ARBaseEngine.cpp
+    src/core/FilamentRenderer.cpp
     ${MATERIAL_OUTPUT}
     ${CUBE_MATERIAL_OUTPUT}
 )

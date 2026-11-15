@@ -8,6 +8,13 @@
 #include <filament/VertexBuffer.h>
 #include <utils/Entity.h>
 
+namespace filament {
+class Engine;
+class Scene;
+} // namespace filament
+
+using namespace filament;
+
 // The demo app: a colourful 3D cube on the pinball marker.
 class App : public ARBaseEngine {
 public:
@@ -20,6 +27,7 @@ public:
     void update(float deltaTime) override;
 
 private:
+    Engine *engine = nullptr; // from setup()
     utils::Entity cubeEntity;
     VertexBuffer* cubeVb = nullptr;
     IndexBuffer* cubeIb = nullptr;

@@ -1,35 +1,24 @@
 #ifndef AR_BASE_ENGINE_H
 #define AR_BASE_ENGINE_H
 
-#include <backend/DriverEnums.h>
-#include <filament/Camera.h>
-#include <filament/Engine.h>
-#include <filament/IndexBuffer.h>
-#include <filament/Material.h>
-#include <filament/Renderer.h>
-#include <filament/Scene.h>
-#include <filament/SwapChain.h>
-#include <filament/Texture.h>
-#include <filament/VertexBuffer.h>
-#include <filament/View.h>
-#include <filament/Viewport.h>
-#include <utils/Entity.h>
-#include <utils/EntityManager.h>
+#include "core/IARRenderer.h"
 
-#include <string>
-#include <vector>
 #include <memory>
+#include <string>
 
 class ARNFTTracker;
+class FilamentRenderer;
 
 namespace filament {
-namespace backend {
-class Platform;
-}
+class Engine;
+class Scene;
 } // namespace filament
 
-using namespace filament;
-
+/**
+ * The engine of WebAR-Canvas: the main loop, the CPU video path (frame pacing, frame capture,
+ * NFT tracking with ARNFTTracker) and the frame timing probe. It draws only through
+ * IARRenderer; FilamentRenderer is the backend.
+ */
 class ARBaseEngine {
 public:
   ARBaseEngine();
@@ -43,26 +32,10 @@ public:
   void run();
 
   // Methods to be implemented in the developer's derived class
-  virtual void setup(Engine *engine, Scene *scene) = 0;
+  virtual void setup(filament::Engine *engine, filament::Scene *scene) = 0;
   virtual void update(float deltaTime) = 0;
 
 protected:
-  // Filament Core
-  Engine *engine;
-  Scene *scene;
-  View *view;
-  Renderer *renderer;
-  Camera *camera;
-
-  // Video Background Resources
-  VertexBuffer *skyboxVb = nullptr;
-  IndexBuffer *skyboxIb = nullptr;
-  Material *videoMaterial = nullptr;
-  MaterialInstance *videoMaterialInst = nullptr;
-  Texture *videoTexture = nullptr;
-  uint32_t nativeTextureId = 0;
-  utils::Entity skyboxQuad;
-
   // NFT Tracker & Data
   std::unique_ptr<ARNFTTracker> nftTracker;
   float projectionMatrix[16] = {0};
@@ -75,17 +48,17 @@ protected:
   bool getIsTracking() const { return isTracking; }
   ARNFTTracker* getNFTTracker() const { return nftTracker.get(); }
 
+  // The rendering backend (valid after init() created it).
+  IARRenderer &getRenderer() const;
+  FilamentRenderer *filamentRenderer() const { return renderer.get(); }
+
 private:
   static void tick(void *arg);
   void profiledTick();
   bool frameCaptured = false;
-  void render();
   void updateVideoFrame();
-  void updateVideoTexture();
-  void createSkyboxQuad();
-  filament::SwapChain *swapChain = nullptr;
-  filament::backend::Platform *platform = nullptr;
-  long glContext = 0;
+
+  std::unique_ptr<FilamentRenderer> renderer;
 };
 
 #endif

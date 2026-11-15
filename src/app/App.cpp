@@ -3,6 +3,7 @@
 #include <filament/RenderableManager.h>
 #include <filament/Scene.h>
 #include <filament/TransformManager.h>
+#include <math/mat4.h>
 #include <utils/EntityManager.h>
 #include <fstream>
 #include <iostream>
@@ -26,6 +27,7 @@ App::~App() {
 }
 
 void App::setup(Engine* engine, Scene* scene) {
+    this->engine = engine;
     std::cout << "Setup Filament Scene with 3D AR Cube..." << std::endl;
 
     // Load compiled baked color material (.fil)

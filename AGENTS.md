@@ -21,13 +21,18 @@ The entire application lifecycle, computer vision tracking, camera projection ca
 - **No Embind in Engine Core**: The C++ engine code does not rely on Emscripten Embind (`<emscripten/bind.h>`) or `emscripten::val` for internal data structures. Matrices, poses, and tracking states are native C++ arrays and structs.
 - **RTTI Disabled (`-fno-rtti`)**: Filament is built with `-fno-rtti`. All engine and NFT C++ code must compile cleanly without RTTI.
 
-### B. Dual Video Pipeline
-- **GPU Path (Rendering)**: The HTML `<video>` stream is uploaded directly to a WebGL texture via `update_webgl_texture` in `ARBaseEngine.cpp` and rendered as a background quad using an unlit Filament material (`video_background.fil`).
+### B. Renderer Interface
+- `ARBaseEngine` draws only through `IARRenderer` (`src/core/IARRenderer.h`: `init`, `setProjection`, `updateVideoTexture`, `render`); it owns the main loop, the CPU video path, the tracker and the profiling probe (#13).
+- `FilamentRenderer` (`src/core/FilamentRenderer.*`) is the backend: the WebGL 2 context, the Filament engine, scene, view and camera, the video texture and background quad, and the render call. The app adds its own Filament entities to its scene.
+- Keep Filament types out of `ARBaseEngine`; renderer-specific code goes in the renderer.
+
+### C. Dual Video Pipeline
+- **GPU Path (Rendering)**: The HTML `<video>` stream is uploaded directly to a WebGL texture via `update_webgl_texture` in `FilamentRenderer.cpp` and rendered as a background quad using an unlit Filament material (`video_background.fil`).
 - **CPU Path (Tracking)**: Frames are ingested into CPU memory (`videoFrame` RGBA and `videoLuma` grayscale luminance) for KPM feature matching and AR2 template tracking.
 - **Frame pacing**: both paths run once per new camera frame (`requestVideoFrameCallback`, in `ARBaseEngine::updateVideoFrame()`), not once per display frame; `update()` and `render()` run every display frame. Without `requestVideoFrameCallback`, or when it has not fired for 250 ms while the video plays, every tick processes the frame.
 - **KPM on the main thread**: while no marker is tracked, `ARToolKitNFTCore` runs KPM detection on every frame. The 200 ms detection interval only limits re-detection while some markers are tracked and others are not; with a single marker, KPM stops once it is tracked. A KPM pass takes tens of milliseconds, so searching is the slowest state of the app (#4).
 
-### C. Camera Projection & Coordinate Alignment
+### D. Camera Projection & Coordinate Alignment
 - ARToolKit intrinsic parameters (`camera_para.dat`) are loaded using `arParamLoad()` and resized with `arParamChangeSize()`.
 - `arglCameraFrustumRH()` calculates an OpenGL right-handed column-major projection matrix (`cameraLens[16]`).
 - This matrix is passed directly to Filament's camera via:
@@ -46,8 +51,9 @@ Wasm_AR_Engine/
 ├── materials/               # Source shaders (.mat) compiled to .fil with matc
 ├── src/
 │   ├── core/                # Framework core
-│   │   ├── ARBaseEngine.h   # Base engine header (Filament core + NFT tracker integration)
-│   │   └── ARBaseEngine.cpp # Base engine implementation (WebGL context, background quad, main loop)
+│   │   ├── ARBaseEngine.h/.cpp     # Main loop, CPU video path, NFT tracker, profiling probe
+│   │   ├── IARRenderer.h           # Rendering backend interface
+│   │   └── FilamentRenderer.h/.cpp # Filament backend: WebGL 2 context, scene, video background
 │   ├── app/                 # The application (user code)
 │   │   ├── App.h            # class App : public ARBaseEngine (the demo: a cube on the marker)
 │   │   └── App.cpp          # App's setup() and update()
