@@ -71,6 +71,7 @@ int ARBaseApp::runApp(ARAppConfig config) {
     std::cerr << "Error during initialization" << std::endl;
     return 1;
   }
+  installInputCallbacks(config.canvasSelector);
   run();
   return 0;
 }

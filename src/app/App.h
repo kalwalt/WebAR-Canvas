@@ -22,6 +22,10 @@ public:
     void onMarkerFound(int markerIndex) override;
     void onMarkerLost(int markerIndex) override;
 
+    void touchDown(float x, float y, int pointerId) override;
+    void mouseDown(float x, float y, int button, int pointerId) override;
+    void windowResized(int width, int height) override;
+
 private:
     utils::Entity anchorEntity; // bound to marker 0, centred on it
     utils::Entity cubeEntity;   // child of anchorEntity, spinning

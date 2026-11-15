@@ -1,11 +1,12 @@
 // Node test runner for the pure C++ parts of the framework core (target core_tests, built with
 // -DWEBAR_CANVAS_BUILD_TESTS=ON). Run it with scripts/test-wasm.sh or `node build-docker.js --test`.
-// Covers src/core/AREvents.h and src/core/ARAppConfig.h: no Filament, no tracker, no browser.
-// The exit code is the number of failed checks.
+// Covers the pure headers of src/core/ (AREvents, ARAppConfig, ARAnchor, ARInput): no Filament,
+// no tracker, no browser. The exit code is the number of failed checks.
 
 #include "core/ARAnchor.h"
 #include "core/ARAppConfig.h"
 #include "core/AREvents.h"
+#include "core/ARInput.h"
 
 #include <cmath>
 #include <cstdio>
@@ -164,6 +165,48 @@ static void anchor_no_smoothing_across_loss() {
   CHECK(anchor.visible() && near(out[12], 10.0f));
 }
 
+// --- clientToCanvas: CSS client coordinates to drawing-buffer pixels (object-fit: contain) ---
+
+static void client_to_canvas_letterbox_wide() {
+  // Element 1280x480 showing a 640x480 canvas: the image spans x 320..960.
+  float x = -1.0f, y = -1.0f;
+  CHECK(clientToCanvas(640.0, 240.0, 0.0, 0.0, 1280.0, 480.0, 640, 480, x, y));
+  CHECK(near(x, 320.0f) && near(y, 240.0f));
+  x = y = -1.0f;
+  CHECK(!clientToCanvas(100.0, 240.0, 0.0, 0.0, 1280.0, 480.0, 640, 480, x, y)); // left bar
+  CHECK(x == -1.0f && y == -1.0f);                                               // untouched
+}
+
+static void client_to_canvas_letterbox_tall() {
+  // Element 640x960 showing a 640x480 canvas: the image spans y 240..720.
+  float x = 0.0f, y = 0.0f;
+  CHECK(clientToCanvas(320.0, 480.0, 0.0, 0.0, 640.0, 960.0, 640, 480, x, y));
+  CHECK(near(x, 320.0f) && near(y, 240.0f));
+  CHECK(!clientToCanvas(320.0, 100.0, 0.0, 0.0, 640.0, 960.0, 640, 480, x, y)); // top bar
+}
+
+static void client_to_canvas_corners() {
+  float x = 0.0f, y = 0.0f;
+  CHECK(clientToCanvas(320.0, 0.0, 0.0, 0.0, 1280.0, 480.0, 640, 480, x, y));
+  CHECK(near(x, 0.0f) && near(y, 0.0f));
+  CHECK(clientToCanvas(959.9, 479.9, 0.0, 0.0, 1280.0, 480.0, 640, 480, x, y));
+  CHECK(x < 640.0f && y < 480.0f && x > 639.0f && y > 479.0f);
+  CHECK(!clientToCanvas(960.0, 240.0, 0.0, 0.0, 1280.0, 480.0, 640, 480, x, y)); // right edge
+}
+
+static void client_to_canvas_with_offset() {
+  float x = 0.0f, y = 0.0f;
+  CHECK(clientToCanvas(110.0, 220.0, 10.0, 20.0, 640.0, 480.0, 640, 480, x, y));
+  CHECK(near(x, 100.0f) && near(y, 200.0f));
+}
+
+static void client_to_canvas_css_scale() {
+  // Element 320x240 CSS pixels showing a 640x480 buffer (high-DPI or CSS scaling).
+  float x = 0.0f, y = 0.0f;
+  CHECK(clientToCanvas(160.0, 120.0, 0.0, 0.0, 320.0, 240.0, 640, 480, x, y));
+  CHECK(near(x, 320.0f) && near(y, 240.0f));
+}
+
 struct TestCase {
   const char *name;
   void (*run)();
@@ -186,6 +229,11 @@ static const TestCase kTests[] = {
     {"anchor_hidden_when_lost", anchor_hidden_when_lost},
     {"anchor_smoothing_halfway", anchor_smoothing_halfway},
     {"anchor_no_smoothing_across_loss", anchor_no_smoothing_across_loss},
+    {"client_to_canvas_letterbox_wide", client_to_canvas_letterbox_wide},
+    {"client_to_canvas_letterbox_tall", client_to_canvas_letterbox_tall},
+    {"client_to_canvas_corners", client_to_canvas_corners},
+    {"client_to_canvas_with_offset", client_to_canvas_with_offset},
+    {"client_to_canvas_css_scale", client_to_canvas_css_scale},
 };
 
 int main() {

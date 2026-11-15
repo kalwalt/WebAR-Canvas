@@ -183,3 +183,15 @@ void App::onMarkerFound(int markerIndex) {
 void App::onMarkerLost(int markerIndex) {
     printf(">>> NFT Marker %d lost <<<\n", markerIndex);
 }
+
+void App::touchDown(float x, float y, int pointerId) {
+    printf("tap at (%.1f, %.1f) pointer %d\n", x, y, pointerId);
+}
+
+void App::mouseDown(float x, float y, int button, int pointerId) {
+    printf("click at (%.1f, %.1f) button %d pointer %d\n", x, y, button, pointerId);
+}
+
+void App::windowResized(int width, int height) {
+    printf("window resized to %dx%d\n", width, height);
+}

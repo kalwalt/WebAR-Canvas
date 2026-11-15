@@ -96,6 +96,7 @@ set(SOURCES
     src/app/App.cpp
     src/core/ARBaseEngine.cpp
     src/core/ARBaseApp.cpp
+    src/core/ARInput.cpp
     src/core/FilamentRenderer.cpp
     ${MATERIAL_OUTPUT}
     ${CUBE_MATERIAL_OUTPUT}
@@ -175,7 +176,7 @@ if(WEBAR_CANVAS_BUILD_TESTS)
         "--embed-file=${WEBARKITLIB_DIR}/tests/data@/data"
     )
 
-    # Pure C++ parts of the framework core (src/core/AREvents.h, ARAppConfig.h): no Filament, no tracker.
+    # Pure C++ parts of the framework core (src/core/AREvents.h, ARAppConfig.h, ARAnchor.h, ARInput.h): no Filament, no tracker.
     add_executable(core_tests tests/core_tests.cpp)
     target_include_directories(core_tests PRIVATE src/)
     set_target_properties(core_tests PROPERTIES SUFFIX ".js")

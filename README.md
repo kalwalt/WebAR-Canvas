@@ -225,6 +225,10 @@ protected:
 
     void onMarkerFound(int markerIndex) override { /* a marker became tracked */ }
     void onMarkerLost(int markerIndex) override { /* a marker is no longer tracked */ }
+
+    // Input, in canvas pixels (e.g. 0..640 x 0..480); pointerId tells touches apart.
+    void touchDown(float x, float y, int pointerId) override { }
+    void mouseDown(float x, float y, int button, int pointerId) override { }
 };
 
 AR_APP_MAIN(MyApp, 640, 480, "/assets/markers/pinball")

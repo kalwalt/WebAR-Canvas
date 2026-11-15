@@ -5,6 +5,7 @@
 #include "core/ARAppConfig.h"
 #include "core/ARBaseEngine.h"
 
+#include <string>
 #include <vector>
 
 #ifdef WEBAR_RENDERER_FILAMENT
@@ -46,8 +47,25 @@ public:
   // Without Module.webarConfig nothing changes.
   static void applyPageConfig(ARAppConfig &config);
 
+private:
+  friend struct ARInputBridge;
+  // Routes the canvas's touch and mouse events and the window's resize events to the input
+  // hooks (src/core/ARInput.cpp); runApp() calls it after a successful init().
+  void installInputCallbacks(const std::string &canvasSelector);
+
 protected:
   ARNFTTracker *getTracker() const { return getNFTTracker(); }
+
+  // Input hooks (no-ops by default). x, y are canvas drawing-buffer pixels (0..videoWidth,
+  // 0..videoHeight), with the letterbox bars of `object-fit: contain` excluded; pointerId is the
+  // browser's touch identifier for touches (multi-touch) and 0 for the mouse.
+  virtual void touchDown(float x, float y, int pointerId) {}
+  virtual void touchMoved(float x, float y, int pointerId) {}
+  virtual void touchUp(float x, float y, int pointerId) {} // also on touchcancel
+  virtual void mouseDown(float x, float y, int button, int pointerId) {}
+  virtual void mouseMoved(float x, float y, int pointerId) {}
+  virtual void mouseUp(float x, float y, int button, int pointerId) {}
+  virtual void windowResized(int width, int height) {} // window inner size, once per change
 
   // The backend chosen at build time (WEBAR_RENDERER_FILAMENT).
   std::unique_ptr<IARRenderer> createRenderer() override;
