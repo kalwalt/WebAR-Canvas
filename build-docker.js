@@ -42,6 +42,46 @@ console.log(`[build-docker] Path bridge:    ${bridgePath}`);
 console.log(`[build-docker] Parallel jobs:  ${jobs}`);
 console.log(`[build-docker] Run tests:      ${runTests ? 'yes' : 'no (use --test)'}`);
 
+// Checks before Docker starts, so a missing prerequisite fails at once with a clear message
+// instead of in the middle of the container build.
+function fail(lines) {
+  console.error(lines.map((line) => `[build-docker] ${line}`).join('\n'));
+  process.exit(1);
+}
+
+// The submodule directories that CMakeLists.txt adds.
+const submodules = [
+  ['third_party/filament', 'CMakeLists.txt'],
+  ['third_party/WebARKitLib', 'WebARKit/WebARKitTrackers/WebARKitNFT/CMakeLists.txt']
+];
+const missingSubmodules = submodules
+  .filter(([dir, marker]) => !fs.existsSync(path.join(cwd, dir, marker)))
+  .map(([dir]) => dir);
+if (missingSubmodules.length > 0) {
+  fail([
+    `Submodule not checked out: ${missingSubmodules.join(', ')}`,
+    'Run this from the repository root, after:',
+    '  git submodule update --init --recursive',
+    'On Windows, check out Filament with LF line endings first (see README, "Prerequisites").'
+  ]);
+}
+
+// The timeout keeps a Docker that is still starting, or a remote context waiting for input,
+// from hanging the script.
+const dockerCheck = spawnSync('docker', ['version', '--format', '{{.Server.Version}}'], {
+  encoding: 'utf8',
+  timeout: 30000
+});
+if (dockerCheck.error || dockerCheck.status !== 0) {
+  const reason = dockerCheck.error
+    ? dockerCheck.error.message
+    : (dockerCheck.stderr || '').trim().split('\n').pop() || `exit code ${dockerCheck.status}`;
+  fail([
+    'Docker is not available: start Docker Desktop (or the Docker engine) and try again.',
+    `docker version: ${reason}`
+  ]);
+}
+
 // Clean build directory if requested
 if (isClean) {
   const buildDir = path.join(cwd, 'build-wasm');
