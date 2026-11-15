@@ -85,6 +85,31 @@ EM_JS(int, capture_video_frame, (uint8_t *dest, int width, int height), {
   return 1;
 });
 
+// Returns 1 when the <video> has presented a frame since the last call, so the texture
+// upload, the capture and the tracking run once per camera frame instead of once per display
+// frame (a 30 fps camera on a 60-144 Hz display). Without requestVideoFrameCallback it always
+// returns 1, as before.
+EM_JS(int, video_frame_due, (), {
+  var video = document.getElementById('ar-video');
+  if (!video || !('requestVideoFrameCallback' in video)) {
+    return 1;
+  }
+  var watch = Module._videoFrameWatch;
+  if (!watch || watch.video !== video) {
+    watch = Module._videoFrameWatch = { video: video, pending: true };
+    var onFrame = function() {
+      watch.pending = true;
+      video.requestVideoFrameCallback(onFrame);
+    };
+    video.requestVideoFrameCallback(onFrame);
+  }
+  if (!watch.pending) {
+    return 0;
+  }
+  watch.pending = false;
+  return 1;
+});
+
 // Opt-in frame timing probe (#4): set Module.webarProfile = { enabled: true, samples: [] }
 // before the module starts; every tick then appends one row (milliseconds) to samples.
 EM_JS(int, webar_profile_enabled, (), {
@@ -419,18 +444,32 @@ void ARBaseEngine::tick(void *arg) {
     app->profiledTick();
     return;
   }
-  app->updateVideoTexture(); // GPU path: update WebGL video texture
-  app->updateTracking();     // CPU path: capture video frame & run NFT tracking
+  app->updateVideoFrame();   // New camera frame only: texture upload, capture, NFT tracking
   app->update(0.016f);       // Developer hook: apply transforms to 3D entities
   app->render();             // Render Filament scene
+}
+
+void ARBaseEngine::updateVideoFrame() {
+  if (!video_frame_due()) {
+    // Same camera frame as last tick: keep the texture, the pose and the tracking state.
+    frameCaptured = false;
+    return;
+  }
+  updateVideoTexture(); // GPU path: update WebGL video texture
+  updateTracking();     // CPU path: capture video frame & run NFT tracking
 }
 
 // The same steps as tick(), timed (milliseconds, CPU side of the main thread).
 void ARBaseEngine::profiledTick() {
   const double t0 = emscripten_get_now();
-  updateVideoTexture();
+  const bool due = video_frame_due();
+  if (due) updateVideoTexture();
   const double t1 = emscripten_get_now();
-  updateTracking();
+  if (due) {
+    updateTracking();
+  } else {
+    frameCaptured = false;
+  }
   const double t2 = emscripten_get_now();
   update(0.016f);
   const double t3 = emscripten_get_now();

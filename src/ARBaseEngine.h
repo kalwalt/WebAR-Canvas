@@ -80,6 +80,7 @@ private:
   void profiledTick();
   bool frameCaptured = false;
   void render();
+  void updateVideoFrame();
   void updateVideoTexture();
   void createSkyboxQuad();
   filament::SwapChain *swapChain = nullptr;
