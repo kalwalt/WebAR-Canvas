@@ -11,6 +11,7 @@ Read it before making changes — it is the canonical source and this file is a 
 - **Host tools / CI**: the first build compiles the Filament host tools (`scripts/build-host-tools.sh`); CI runs the same scripts (`.github/workflows/build.yml`). Pitfalls (glibc, absolute paths, `FILAMENT_LINUX_IS_MOBILE`, CRLF): AGENTS.md section 4
 - **Windows**: check out `third_party/filament` with `core.autocrlf=false` in the submodule's config only (README, "Prerequisites & Setup")
 - **Build runner tests**: `node --test scripts/build-docker.test.js` (checks before Docker starts; no Docker needed)
+- **Writing an app**: derive from `ARBaseApp` (hooks, marker events, `AR_APP_MAIN` over `ARAppConfig`); the demo is `src/app/App.cpp`. See AGENTS.md section 2C
 - **Serve & Test**: `python -m http.server 8000 --directory build-wasm` (open `http://localhost:8000/videoTest.html`)
 
 ## Key Rules to Remember

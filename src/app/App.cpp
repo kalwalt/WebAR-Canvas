@@ -10,6 +10,7 @@
 #include <vector>
 
 App::~App() {
+    Engine *engine = getEngine();
     if (engine) {
         auto &tcm = engine->getTransformManager();
         if (tcm.hasComponent(cubeEntity)) {
@@ -26,8 +27,9 @@ App::~App() {
     }
 }
 
-void App::setup(Engine* engine, Scene* scene) {
-    this->engine = engine;
+void App::setup() {
+    Engine *engine = getEngine();
+    Scene *scene = getScene();
     std::cout << "Setup Filament Scene with 3D AR Cube..." << std::endl;
 
     // Load compiled baked color material (.fil)
@@ -147,7 +149,7 @@ void App::setup(Engine* engine, Scene* scene) {
 }
 
 void App::update(float deltaTime) {
-    auto &tcm = engine->getTransformManager();
+    auto &tcm = getEngine()->getTransformManager();
     auto inst = tcm.getInstance(cubeEntity);
     if (!inst.isValid()) return;
 
@@ -185,4 +187,12 @@ void App::update(float deltaTime) {
         // Hide the cube when tracking is not active
         tcm.setTransform(inst, math::mat4f::scaling(math::float3{0.0f}));
     }
+}
+
+void App::onMarkerFound(int markerIndex) {
+    printf(">>> NFT Marker %d found <<<\n", markerIndex);
+}
+
+void App::onMarkerLost(int markerIndex) {
+    printf(">>> NFT Marker %d lost <<<\n", markerIndex);
 }

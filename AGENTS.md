@@ -26,13 +26,20 @@ The entire application lifecycle, computer vision tracking, camera projection ca
 - `FilamentRenderer` (`src/core/FilamentRenderer.*`) is the backend: the WebGL 2 context, the Filament engine, scene, view and camera, the video texture and background quad, and the render call. The app adds its own Filament entities to its scene.
 - Keep Filament types out of `ARBaseEngine`; renderer-specific code goes in the renderer.
 
-### C. Dual Video Pipeline
+### C. App API (`ARBaseApp`)
+- Apps derive from `ARBaseApp` (`src/core/ARBaseApp.h`) and override `setup()` (once, after a successful init), `update(float deltaTime)`, `draw()` (every tick, after `update()`, before the render), `onMarkerFound(int)` and `onMarkerLost(int)`; all are no-ops by default.
+- Each tick: on a new camera frame the texture upload, capture, tracking and marker events; then `update()`, `draw()` and the render.
+- Marker events fire for every marker index when its tracked state changes, from the raw tracking state (no debounce). `getIsTracking()` / `getModelViewMatrix()` describe marker 0; a per-index pose getter is planned with `ARAnchor`.
+- Configuration is plain data, `ARAppConfig` (`src/core/ARAppConfig.h`): canvas selector, camera frame size, camera parameter file, marker paths. `AR_APP_MAIN(App, w, h, marker)` only fills one; `runApp()` then applies `Module.webarConfig` from the page (`canvasSelector`, `cameraParamPath`, `videoWidth`, `videoHeight`, `markers`) before `init()`. `runApp()` returns 1 and starts no loop if init fails.
+- `getEngine()` / `getScene()` / `getCamera()` return Filament objects and exist only with `WEBAR_RENDERER_FILAMENT` (set by `CMakeLists.txt`); an app that uses them is a Filament app. `ARBaseEngine` itself depends only on `IARRenderer`: the backend is created by `ARBaseApp::createRenderer()`.
+
+### D. Dual Video Pipeline
 - **GPU Path (Rendering)**: The HTML `<video>` stream is uploaded directly to a WebGL texture via `update_webgl_texture` in `FilamentRenderer.cpp` and rendered as a background quad using an unlit Filament material (`video_background.fil`).
 - **CPU Path (Tracking)**: Frames are ingested into CPU memory (`videoFrame` RGBA and `videoLuma` grayscale luminance) for KPM feature matching and AR2 template tracking.
 - **Frame pacing**: both paths run once per new camera frame (`requestVideoFrameCallback`, in `ARBaseEngine::updateVideoFrame()`), not once per display frame; `update()` and `render()` run every display frame. Without `requestVideoFrameCallback`, or when it has not fired for 250 ms while the video plays, every tick processes the frame.
 - **KPM on the main thread**: while no marker is tracked, `ARToolKitNFTCore` runs KPM detection on every frame. The 200 ms detection interval only limits re-detection while some markers are tracked and others are not; with a single marker, KPM stops once it is tracked. A KPM pass takes tens of milliseconds, so searching is the slowest state of the app (#4).
 
-### D. Camera Projection & Coordinate Alignment
+### E. Camera Projection & Coordinate Alignment
 - ARToolKit intrinsic parameters (`camera_para.dat`) are loaded using `arParamLoad()` and resized with `arParamChangeSize()`.
 - `arglCameraFrustumRH()` calculates an OpenGL right-handed column-major projection matrix (`cameraLens[16]`).
 - This matrix is passed directly to Filament's camera via:
@@ -51,13 +58,16 @@ Wasm_AR_Engine/
 ├── materials/               # Source shaders (.mat) compiled to .fil with matc
 ├── src/
 │   ├── core/                # Framework core
+│   │   ├── ARBaseApp.h/.cpp        # The app base class, AR_APP_MAIN, Module.webarConfig
+│   │   ├── ARAppConfig.h           # ARAppConfig: what an app needs to start
+│   │   ├── AREvents.h              # Marker found/lost event tracking
 │   │   ├── ARBaseEngine.h/.cpp     # Main loop, CPU video path, NFT tracker, profiling probe
 │   │   ├── IARRenderer.h           # Rendering backend interface
 │   │   └── FilamentRenderer.h/.cpp # Filament backend: WebGL 2 context, scene, video background
 │   ├── app/                 # The application (user code)
-│   │   ├── App.h            # class App : public ARBaseEngine (the demo: a cube on the marker)
-│   │   └── App.cpp          # App's setup() and update()
-│   ├── main.cpp             # Entry point: creates the App and runs it
+│   │   ├── App.h            # class App : public ARBaseApp (the demo: a cube on the marker)
+│   │   └── App.cpp          # App's hooks: setup(), update(), marker events
+│   ├── main.cpp             # Entry point: AR_APP_MAIN(App, 640, 480, "/assets/markers/pinball")
 │   ├── shell.html           # Emscripten HTML shell template
 │   └── nft/                 # Native C++ NFT tracking subsystem
 │       ├── ARNFTTracker.h   # C++ NFT tracker interface

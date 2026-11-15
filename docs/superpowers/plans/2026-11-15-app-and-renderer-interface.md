@@ -199,6 +199,8 @@ Browser checks reuse the stage 3 harness (`D:/kalwalt-github/WebAR-Canvas-runs/s
 - Tick order: `updateVideoFrame()` (camera frames only; marker events dispatched there, from `MarkerEventTracker` over all marker indices) -> `update(0.016f)` -> `draw()` -> `renderer.render()`. `setup()` runs once, at the end of a successful `init()`. When `init()` fails, `runApp` prints `Error during initialization` to stderr and returns 1 without starting the loop; otherwise it starts the loop (which never returns, `simulate_infinite_loop`).
 - `applyPageConfig` reads `Module.webarConfig` through EM_JS getters (no Embind): one for integers with a fallback, one for strings returning a `malloc`'d UTF-8 copy or null, and one for the marker list joined with `\n`, split by `parseMarkerList`.
 
+- Deviation found while implementing (Task 4): so that `ARBaseEngine.h` names no Filament type at all (D1), `ARBaseEngine` gets its backend from a pure virtual `createRenderer()`; `ARBaseApp` implements it behind `WEBAR_RENDERER_FILAMENT` and keeps the typed `FilamentRenderer*` for the Filament getters. Stage 6 adds the sokol branch there.
+
 - [ ] **Step 1: Write the failing tests** in `tests/core_tests.cpp`:
   - `config_defaults`: `ARAppConfig{}` has `"#canvas"`, 640, 480, `"/assets/camera_para.dat"`, no markers.
   - `marker_list_splits_lines`: `parseMarkerList("/a\n/b\n")` == `{"/a","/b"}`.

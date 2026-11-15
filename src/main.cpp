@@ -1,24 +1,5 @@
 #include "app/App.h"
-#include <iostream>
-#include <string>
 
-// Entry point of the WASM application
-int main(int argc, char** argv) {
-    int width = 640;
-    int height = 480;
-
-    std::string markerPath = "/assets/markers/pinball";
-
-    static App app;
-
-    std::cout << "Initializing WebAR-Canvas with NFT..." << std::endl;
-
-    if (!app.init("canvas", width, height, markerPath)) {
-        std::cerr << "Error during ARBaseEngine initialization" << std::endl;
-        return 1;
-    }
-
-    app.run();
-
-    return 0;
-}
+// Entry point of the WASM application: the demo app, 640x480 camera frames, the pinball marker.
+// The page can change these at runtime with Module.webarConfig (see ARBaseApp::applyPageConfig).
+AR_APP_MAIN(App, 640, 480, "/assets/markers/pinball")

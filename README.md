@@ -194,55 +194,44 @@ Open `http://localhost:8000/videoTest.html` in Chrome, Edge, or Firefox.
 1. Display or print the reference marker image located at [`assets/pinball.jpg`](assets/pinball.jpg).
 2. Point your camera at the marker.
 3. When recognized:
-   - Console logs will report: `>>> NFT Marker 0 RECOGNIZED & TRACKING! <<<`.
+   - Console logs will report: `>>> NFT Marker 0 found <<<`.
    - An 80mm multi-colored 3D cube will appear anchored to the center of the marker, standing on the paper and spinning in real-time AR.
 
 ---
 
 ## 🎨 Developing Your Own AR Application
 
-To build a custom AR experience, inherit from `ARBaseEngine` and implement `setup()` and `update()` (the demo app is `src/app/App.h/.cpp`):
+An app derives from `ARBaseApp` and overrides the hooks it needs; the demo is `src/app/App.h/.cpp`:
 
 ```cpp
-#include "core/ARBaseEngine.h"
-#include <filament/TransformManager.h>
+#include "core/ARBaseApp.h"
 
-class CustomARApp : public ARBaseEngine {
-public:
-    void setup(Engine* engine, Scene* scene) override {
-        // 1. Create renderable entities (e.g. glTF models, custom meshes, lights)
-        // 2. Add entities to scene
-        // 3. Register with TransformManager
+class MyApp : public ARBaseApp {
+protected:
+    void setup() override {
+        // Once, when the renderer and the tracker are ready: create your entities.
+        // getEngine() / getScene() / getCamera() give the Filament objects (Filament build).
     }
 
     void update(float deltaTime) override {
-        if (isTracking) {
-            // Retrieve current column-major modelViewMatrix
-            math::mat4f pose;
-            for (int c = 0; c < 4; ++c) {
-                for (int r = 0; r < 4; ++r) {
-                    pose[c][r] = modelViewMatrix[c * 4 + r];
-                }
-            }
-
-            // Apply pose matrix to entity transforms
-            auto& tcm = engine->getTransformManager();
-            auto inst = tcm.getInstance(myEntity);
-            tcm.setTransform(inst, pose);
-        } else {
-            // Hide or freeze entities when tracking is lost
-        }
+        // Every frame: marker 0's pose is getModelViewMatrix() while getIsTracking() is true.
     }
+
+    void draw() override {
+        // Every frame, after update() and before the frame is rendered.
+    }
+
+    void onMarkerFound(int markerIndex) override { /* a marker became tracked */ }
+    void onMarkerLost(int markerIndex) override { /* a marker is no longer tracked */ }
 };
 
-int main(int argc, char** argv) {
-    static CustomARApp app;
-    if (!app.init("canvas", 640, 480, "/assets/markers/pinball")) {
-        return 1;
-    }
-    app.run();
-    return 0;
-}
+AR_APP_MAIN(MyApp, 640, 480, "/assets/markers/pinball")
+```
+
+`AR_APP_MAIN` only fills an `ARAppConfig` (canvas selector, camera frame size, camera parameter file, marker paths) and calls `runApp()`. You can fill the struct in code instead, and the page can override it at runtime by setting `Module.webarConfig` before the module starts, for example:
+
+```js
+var Module = { webarConfig: { markers: ['/assets/markers/pinball'], videoWidth: 640, videoHeight: 480 } };
 ```
 
 ---

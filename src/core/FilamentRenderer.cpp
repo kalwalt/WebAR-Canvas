@@ -105,7 +105,7 @@ FilamentRenderer::~FilamentRenderer() {
   engine->destroy(swapChain);
   engine->destroy(scene);
   engine->destroy(view);
-  engine->destroy(camera->getEntity());
+  if (camera) engine->destroy(camera->getEntity());
   Engine::destroy(&engine);
   delete platform;
 }

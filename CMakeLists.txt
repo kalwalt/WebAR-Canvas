@@ -95,6 +95,7 @@ set(SOURCES
     src/main.cpp
     src/app/App.cpp
     src/core/ARBaseEngine.cpp
+    src/core/ARBaseApp.cpp
     src/core/FilamentRenderer.cpp
     ${MATERIAL_OUTPUT}
     ${CUBE_MATERIAL_OUTPUT}
@@ -124,6 +125,9 @@ target_link_libraries(${PROJECT_NAME} PUBLIC
     geometry
     ARNFTTracker
 )
+
+# The Filament backend: enables the Filament getters of ARBaseApp (getEngine, getScene, getCamera).
+target_compile_definitions(${PROJECT_NAME} PRIVATE WEBAR_RENDERER_FILAMENT=1)
 
 set_target_properties(${PROJECT_NAME} PROPERTIES OUTPUT_NAME "videoTest")
 set_target_properties(${PROJECT_NAME} PROPERTIES SUFFIX ".html")

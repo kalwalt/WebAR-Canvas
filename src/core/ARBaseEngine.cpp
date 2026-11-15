@@ -1,11 +1,12 @@
 #include "core/ARBaseEngine.h"
 #include "WebARCanvasVersion.h"
-#include "core/FilamentRenderer.h"
 #include "nft/ARNFTTracker.h"
 #include <emscripten.h>
 
 #include <algorithm>
+#include <cstddef>
 #include <cstdio>
+#include <string>
 
 // Helper JavaScript to capture CPU frame from <video> element into WASM memory
 EM_JS(int, capture_video_frame, (uint8_t *dest, int width, int height), {
@@ -97,24 +98,23 @@ ARBaseEngine::~ARBaseEngine() {
   // renderer is released after this body: the app's own entities are gone by then.
 }
 
-IARRenderer &ARBaseEngine::getRenderer() const { return *renderer; }
-
-bool ARBaseEngine::init(const char *canvasId, int width, int height,
-                        const std::string &markerPath) {
+bool ARBaseEngine::init(const ARAppConfig &config) {
   printf("WebAR-Canvas v%s\n", WEBAR_CANVAS_VERSION_STRING);
+  const int width = config.videoWidth;
+  const int height = config.videoHeight;
 
   // --- STEP 1: The rendering backend (WebGL 2 context, scene, video background) ---
-  renderer = std::make_unique<FilamentRenderer>();
-  if (!renderer->init("#canvas", width, height)) {
+  renderer = createRenderer();
+  if (!renderer || !getRenderer().init(config.canvasSelector.c_str(), width, height)) {
     return false;
   }
 
   // --- STEP 2: Initialize NFT Subsystem (Setup & setCamera) ---
   printf("Initializing ARNFTTracker...\n");
   nftTracker = std::make_unique<ARNFTTracker>();
-  int cameraID = nftTracker->loadCamera("/assets/camera_para.dat");
+  int cameraID = nftTracker->loadCamera(config.cameraParamPath);
   if (cameraID < 0) {
-    printf("ERROR: Failed to load camera parameter file /assets/camera_para.dat\n");
+    printf("ERROR: Failed to load camera parameter file %s\n", config.cameraParamPath.c_str());
     return false;
   }
 
@@ -128,8 +128,8 @@ bool ARBaseEngine::init(const char *canvasId, int width, int height,
     return false;
   }
 
-  // --- STEP 3: Load NFT Marker Dataset ---
-  if (!markerPath.empty()) {
+  // --- STEP 3: Load the NFT marker datasets ---
+  for (const std::string &markerPath : config.markerPaths) {
     printf("Loading NFT marker from: %s\n", markerPath.c_str());
     int markerId = nftTracker->loadMarker(markerPath);
     if (markerId < 0) {
@@ -140,6 +140,8 @@ bool ARBaseEngine::init(const char *canvasId, int width, int height,
     printf("NFT Marker [%d] loaded successfully: %dx%d @ %d DPI\n",
            markerId, markerData.width, markerData.height, markerData.dpi);
   }
+  markerEvents.reset();
+  markerTracked.assign(nftTracker->getMarkerCount(), false);
 
   // Retrieve calculated OpenGL camera frustum projection matrix
   const ARdouble *lens = nftTracker->getCameraLens();
@@ -155,10 +157,10 @@ bool ARBaseEngine::init(const char *canvasId, int width, int height,
            projectionMatrix[2 * 4 + r],
            projectionMatrix[3 * 4 + r]);
   }
-  renderer->setProjection(lens, nftTracker->getNearPlane(), nftTracker->getFarPlane());
+  getRenderer().setProjection(lens, nftTracker->getNearPlane(), nftTracker->getFarPlane());
 
-  // 4. Developer hook
-  this->setup(renderer->getEngine(), renderer->getScene());
+  // 4. App hook
+  setup();
 
   return true;
 }
@@ -175,19 +177,23 @@ void ARBaseEngine::updateTracking() {
     nftTracker->update();
 
     if (nftTracker->getMarkerCount() > 0 && nftTracker->isMarkerTracked(0)) {
-      if (!isTracking) {
-        printf(">>> NFT Marker 0 RECOGNIZED & TRACKING! <<<\n");
-      }
       isTracking = true;
       nftTracker->getTransformMatrix(0, modelViewMatrix);
     } else {
-      if (isTracking) {
-        printf(">>> NFT Marker 0 LOST! <<<\n");
-      }
       isTracking = false;
       std::fill(modelViewMatrix, modelViewMatrix + 16, 0.0f);
     }
+    dispatchMarkerEvents();
   }
+}
+
+// onMarkerFound / onMarkerLost for every marker whose tracked state changed on this frame.
+void ARBaseEngine::dispatchMarkerEvents() {
+  for (std::size_t i = 0; i < markerTracked.size(); ++i) {
+    markerTracked[i] = nftTracker->isMarkerTracked(static_cast<int>(i));
+  }
+  markerEvents.update(markerTracked, [this](int i) { onMarkerFound(i); },
+                      [this](int i) { onMarkerLost(i); });
 }
 
 void ARBaseEngine::tick(void *arg) {
@@ -196,8 +202,9 @@ void ARBaseEngine::tick(void *arg) {
     app->profiledTick();
     return;
   }
-  app->updateVideoFrame();   // New camera frame only: texture upload, capture, NFT tracking
-  app->update(0.016f);       // Developer hook: apply transforms to 3D entities
+  app->updateVideoFrame();     // New camera frame only: texture upload, capture, NFT tracking
+  app->update(0.016f);         // App hook: logic and animation
+  app->draw();                 // App hook: just before the render
   app->getRenderer().render(); // Draw the video background and the scene
 }
 
@@ -207,16 +214,17 @@ void ARBaseEngine::updateVideoFrame() {
     frameCaptured = false;
     return;
   }
-  renderer->updateVideoTexture(); // GPU path: update the video texture
-  updateTracking();     // CPU path: capture video frame & run NFT tracking
+  getRenderer().updateVideoTexture(); // GPU path: update the video texture
+  updateTracking();                   // CPU path: capture video frame & run NFT tracking
 }
 
 // The same steps as tick() and updateVideoFrame(), timed (milliseconds, wall time of the main
 // thread; GPU work runs asynchronously and is not included). Keep it in step with them.
+// The appUpdate column covers update() and draw().
 void ARBaseEngine::profiledTick() {
   const double t0 = emscripten_get_now();
   const bool due = video_frame_due();
-  if (due) renderer->updateVideoTexture();
+  if (due) getRenderer().updateVideoTexture();
   const double t1 = emscripten_get_now();
   if (due) {
     updateTracking();
@@ -225,8 +233,9 @@ void ARBaseEngine::profiledTick() {
   }
   const double t2 = emscripten_get_now();
   update(0.016f);
+  draw();
   const double t3 = emscripten_get_now();
-  renderer->render();
+  getRenderer().render();
   const double t4 = emscripten_get_now();
 
   double luma = 0.0, track = 0.0;

@@ -1,10 +1,13 @@
 // Node test runner for the pure C++ parts of the framework core (target core_tests, built with
 // -DWEBAR_CANVAS_BUILD_TESTS=ON). Run it with scripts/test-wasm.sh or `node build-docker.js --test`.
-// No Filament, no tracker, no browser. The exit code is the number of failed checks.
+// Covers src/core/AREvents.h and src/core/ARAppConfig.h: no Filament, no tracker, no browser.
+// The exit code is the number of failed checks.
 
+#include "core/ARAppConfig.h"
 #include "core/AREvents.h"
 
 #include <cstdio>
+#include <string>
 #include <vector>
 
 static int gChecks = 0;
@@ -69,6 +72,24 @@ static void reset_forgets_state() {
   CHECK(step(t, {true}).found == std::vector<int>{0});
 }
 
+static void config_defaults() {
+  const ARAppConfig c;
+  CHECK(c.canvasSelector == "#canvas");
+  CHECK(c.videoWidth == 640 && c.videoHeight == 480);
+  CHECK(c.cameraParamPath == "/assets/camera_para.dat");
+  CHECK(c.markerPaths.empty());
+}
+
+static void marker_list_splits_lines() {
+  CHECK((parseMarkerList("/a\n/b\n") == std::vector<std::string>{"/a", "/b"}));
+  CHECK((parseMarkerList("/a") == std::vector<std::string>{"/a"}));
+}
+
+static void marker_list_drops_empty_lines() {
+  CHECK((parseMarkerList("\n\n/a\n") == std::vector<std::string>{"/a"}));
+  CHECK(parseMarkerList("").empty());
+}
+
 struct TestCase {
   const char *name;
   void (*run)();
@@ -79,6 +100,9 @@ static const TestCase kTests[] = {
     {"found_once_then_lost_once", found_once_then_lost_once},
     {"two_markers_same_frame", two_markers_same_frame},
     {"reset_forgets_state", reset_forgets_state},
+    {"config_defaults", config_defaults},
+    {"marker_list_splits_lines", marker_list_splits_lines},
+    {"marker_list_drops_empty_lines", marker_list_drops_empty_lines},
 };
 
 int main() {
