@@ -153,8 +153,8 @@ target_link_options(${PROJECT_NAME} PRIVATE
 
 add_dependencies(${PROJECT_NAME} filament ARNFTTracker)
 
-# --- Node test runner for ARNFTTracker (scripts/test-wasm.sh, node build-docker.js --test) ---
-option(WEBAR_CANVAS_BUILD_TESTS "Build the Node test runner (nft_tests)" OFF)
+# --- Node test runners (scripts/test-wasm.sh, node build-docker.js --test) ---
+option(WEBAR_CANVAS_BUILD_TESTS "Build the Node test runners (nft_tests, core_tests)" OFF)
 if(WEBAR_CANVAS_BUILD_TESTS)
     add_executable(nft_tests tests/nft_tests.cpp)
     target_link_libraries(nft_tests PRIVATE ARNFTTracker)
@@ -169,5 +169,15 @@ if(WEBAR_CANVAS_BUILD_TESTS)
         "-sUSE_ZLIB=1"
         # WebARKitLib's NFT fixtures: camera_para.dat, pinball.{iset,fset,fset3}, pinball-demo.jpg
         "--embed-file=${WEBARKITLIB_DIR}/tests/data@/data"
+    )
+
+    # Pure C++ parts of the framework core (src/core/AREvents.h): no Filament, no tracker.
+    add_executable(core_tests tests/core_tests.cpp)
+    target_include_directories(core_tests PRIVATE src/)
+    set_target_properties(core_tests PROPERTIES SUFFIX ".js")
+    target_link_options(core_tests PRIVATE
+        "-sENVIRONMENT=node"
+        "-sEXIT_RUNTIME=1"
+        "-sASSERTIONS=1"
     )
 endif()

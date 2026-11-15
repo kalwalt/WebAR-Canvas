@@ -95,7 +95,9 @@ node build-docker.js --test
 `build-docker.js` runs these scripts inside the container, the same ones the CI runs (`.github/workflows/build.yml`):
 - `scripts/build-host-tools.sh`: builds the Filament host tools (`matc`, `resgen`, `cmgen`, `glslminifier`) in `third_party/filament/out/host` with emsdk's clang, once; it skips them when already built.
 - `scripts/build-wasm.sh [jobs] [target]`: configures `build-wasm/` and builds a target (`WebAR-Canvas` by default).
-- `scripts/test-wasm.sh` (with `--test`): builds `nft_tests` and runs it with Node. It drives `ARNFTTracker` on WebARKitLib's fixtures (`tests/data`, embedded at `/data`, including `pinball-demo.jpg`), with no browser or webcam; the exit code is the number of failed checks.
+- `scripts/test-wasm.sh` (with `--test`): builds and runs two Node runners, with no browser or webcam; the exit code is the total number of failed checks.
+  - `nft_tests` (`tests/nft_tests.cpp`) drives `ARNFTTracker` on WebARKitLib's fixtures (`tests/data`, embedded at `/data`, including `pinball-demo.jpg`).
+  - `core_tests` (`tests/core_tests.cpp`) tests the pure C++ parts of `src/core/` (no Filament, no tracker), such as `MarkerEventTracker`.
 
 The Emscripten cache lives in the `webar-canvas-emcache-4.0.17` Docker volume, so the libjpeg and zlib ports are downloaded once.
 
@@ -147,7 +149,7 @@ Allowed types: `feat`, `fix`, `perf`, `doc`, `refactor`, `test`, `style`, `chore
 
 ## 6. Testing & Verification
 
-1. Compile the WebAssembly build and run the tests using `node build-docker.js --test` (last line: `N checks, 0 failed`). Changes to `ARNFTTracker` need a test in `tests/nft_tests.cpp`.
+1. Compile the WebAssembly build and run the tests using `node build-docker.js --test` (each runner ends with `N checks, 0 failed`). Changes to `ARNFTTracker` need a test in `tests/nft_tests.cpp`; pure C++ logic in `src/core/` gets its tests in `tests/core_tests.cpp`.
 2. Start a local HTTP server serving `build-wasm/`:
    ```bash
    python -m http.server 8000 --directory build-wasm
