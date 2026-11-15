@@ -18,6 +18,12 @@ struct NFTMarkerData {
     int dpi = 0;
 };
 
+/** Where the last update() spent its time, in milliseconds (0 before any measured update). */
+struct NFTUpdateTimings {
+    double lumaMs = 0.0;  // RGBA to luma conversion
+    double trackMs = 0.0; // the core: KPM detection and AR2 tracking
+};
+
 /**
  * The NFT tracker of WebAR-Canvas: an adapter over WebARKitLib's ARToolKitNFTCore.
  *
@@ -64,6 +70,7 @@ public:
     const ARUint8* getVideoLuma() const { return lumaInfo ? lumaInfo->buff.get() : nullptr; }
 
     int update(); // Main tracking cycle: converts luma, detects, tracks
+    NFTUpdateTimings getLastUpdateTimings() const { return lastTimings; }
 
     // Tracking state queries
     bool isMarkerTracked(int markerIndex) const;
@@ -113,6 +120,7 @@ private:
     std::unique_ptr<ARUint8[]> videoFrame;
     int videoFrameSize = 0;
     webarkit::WebARKitLumaInfo *lumaInfo = nullptr;
+    NFTUpdateTimings lastTimings;
 
     // Settings pushed to the core, kept for the getters
     bool continuousDetection = true;

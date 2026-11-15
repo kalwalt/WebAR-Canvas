@@ -1,5 +1,6 @@
 #include "ARNFTTracker.h"
 #include <AR/paramGL.h>
+#include <chrono>
 
 ARNFTTracker::ARNFTTracker() {
     core.setContinuousDetection(continuousDetection);
@@ -69,7 +70,10 @@ int ARNFTTracker::update() {
     if (!videoFrame || !lumaInfo) {
         return 0;
     }
+    using Clock = std::chrono::steady_clock;
+    const auto start = Clock::now();
     const ARUint8 *luma = webarkit::webarkitVideoLuma(lumaInfo, videoFrame.get());
+    const auto lumaDone = Clock::now();
     core.setVideoFrame(videoFrame.get(), luma);
     // ARToolKitNFTCore logs every tracked frame at INFO ("Tracked page ..."): keep the
     // ARToolKit log at WARN or above while it runs, so errors still show.
@@ -77,6 +81,9 @@ int ARNFTTracker::update() {
     arLogLevel = std::max(logLevel, static_cast<int>(AR_LOG_LEVEL_WARN));
     core.detectNFTMarker();
     arLogLevel = logLevel;
+    const auto trackDone = Clock::now();
+    using Ms = std::chrono::duration<double, std::milli>;
+    lastTimings = {Ms(lumaDone - start).count(), Ms(trackDone - lumaDone).count()};
     return anyMarkerTracked() ? 1 : 0;
 }
 
@@ -170,6 +177,7 @@ void ARNFTTracker::teardown() {
 
     videoFrame.reset();
     videoFrameSize = 0;
+    lastTimings = {};
     width = 0;
     height = 0;
 
