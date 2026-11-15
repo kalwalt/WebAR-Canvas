@@ -20,15 +20,15 @@
 - No changes to GitHub repository settings (template checkbox, Pages source): they are listed for the maintainer.
 - Conventional Commits, `For #2` in bodies.
 
-## Decisions for the maintainer (approve or change before Task 1)
+## Decisions (approved by the maintainer on 2026-11-15, with the changes noted)
 
-- **E1 — `uberz` becomes a host tool.** `gltfio` links `uberarchive`, which Filament builds with `uberz` (and `matc`, `resgen`). `scripts/build-host-tools.sh` adds `uberz` to its list (5 tools instead of 4); the CI cache adds its path and the key gets a `-v2` suffix, so the first CI run rebuilds the tools once. This is the stage 1 discrepancy (#6 listed 7 tools) resolved for the one extra tool glTF needs.
+- **E1 — `uberz` becomes a host tool.** `gltfio` links `uberarchive`, which Filament builds with `uberz` (and `matc`, `resgen`). `scripts/build-host-tools.sh` adds `uberz` to its list (5 tools instead of 4); the CI cache adds its path and the key gets a `-v2` suffix, so the first CI run rebuilds the tools once. This is the stage 1 discrepancy (#6 listed 7 tools) resolved for the one extra tool glTF needs. One commit updates `scripts/build-host-tools.sh`, the cache paths and key in `.github/workflows/build.yml`, and the notes in `AGENTS.md` and `README.md` together; the PR says that the first CI run with the cold cache is a little longer, once.
 - **E2 — glTF is linked by default, behind a CMake option.** `WEBAR_CANVAS_GLTF` (default `ON`) links `gltfio_core` and `uberarchive` and enables `loadModel()`. The PR reports the `.wasm` size with and without it; with `OFF` the build is as today.
-- **E3 — Models load from the embedded file system** (`/assets/models/...`, `--embed-file`), synchronously, in `setup()`. Loading from a URL (fetch) is left for later. The demo embeds `AnimatedMorphCube.glb` (6.7 KB, CC0, from the Filament submodule's `third_party/models/`), not copied into the repository.
+- **E3 — Models load from the Emscripten file system.** `loadModel(path)` takes a file-system path and can be called at any time after `init()`, not only in `setup()`; it returns a handle (>= 0) or a negative error code, so a page can first write a file into the file system (`FS_createDataFile`) and then load it: a graph-driven player for webarkit-studio will receive its models at runtime. A page calls it through the exported C function `webar_load_model(path)` (no Embind). Loading from a URL stays for later, as a layer on top of the same call. The demo embeds `AnimatedMorphCube.glb` (6.7 KB, CC0, from the Filament submodule's `third_party/models/`), not copied into the repository.
 - **E4 — `ARAnchor` smoothing is off by default.** The tracker already filters the pose; `ARAnchor` adds optional exponential smoothing (`smoothing` in [0, 1), 0 = none) so the default keeps today's motion.
-- **E5 — Input coordinates are canvas pixels.** The canvas is shown with `object-fit: contain` (letterboxed); events are mapped from client coordinates to the drawing buffer (0..640 × 0..480 in the demo) and events on the letterbox bars are not delivered.
+- **E5 — Input coordinates are canvas pixels, with a pointer id.** Events are mapped from client (CSS) coordinates to drawing-buffer pixels, accounting for both the ratio between the canvas's CSS size and its pixel size and the letterbox bars of `object-fit: contain` (0..640 × 0..480 in the demo); events on the bars are not delivered. Every touch and mouse hook gets a pointer id: the browser's touch identifier for touches (multi-touch), 0 for the mouse.
 - **E6 — The demo app shows every feature.** The cube is built with `createBox()` (six face colours, as today) and bound with `attachToMarker()` (about 150 lines of manual Filament code go away, same look); `AnimatedMorphCube.glb` sits on the marker too, hidden; a tap on the canvas switches between cube and model. Visible change: the tap switch.
-- **E7 — Pages deploys from `master` only.** `.github/workflows/build.yml` uploads the built app as a Pages artifact on every run and a `deploy` job publishes it only on a push to `master` (releases). The maintainer enables Pages with source "GitHub Actions" and ticks "Template repository" in the repository settings.
+- **E7 — Pages deploys from the default branch only.** A new workflow, `.github/workflows/pages.yml`, builds the app and publishes it on a push to the repository's default branch: it triggers on pushes and runs its jobs only when `github.ref` is `refs/heads/<default branch>` (`github.event.repository.default_branch`), so a copy made from the template deploys whether its default branch is `master` or `main`; `workflow_dispatch` too. In WebAR-Canvas the default branch is `master` (releases). The template page (`docs/template.md`) says how to restrict it to another branch, and shows the license (LGPL-3.0 with the static-linking exception, `LICENSE`) in a visible place. The maintainer enables Pages with source "GitHub Actions" and ticks "Template repository" in the repository settings.
 - **Still deferred:** `IARRenderer::setPose` (stage 4, D2) — `ARAnchor` computes matrices, and the Filament binding applies them; the sokol backend decides in stage 6 how it consumes them.
 
 ## Review Focus
@@ -36,6 +36,8 @@
 - Marker lost while bound: the anchored entity hides (scale 0, as the demo does today) and reappears at the new pose, with no smoothing across the gap → `ARAnchor` tests in Task 1.
 - Touch with several fingers, and pointer events on the letterbox bars: one callback per changed touch with its id, nothing outside the image → `clientToCanvas` tests in Task 2, harness events in Task 2.
 - Resize (window, device rotation): `windowResized(width, height)` fires once per change and the mapping uses the new rectangle → Task 2 harness check.
+- A canvas whose CSS size differs from its pixel size (high-DPI, CSS scaling): coordinates still land in drawing-buffer pixels → `client_to_canvas_css_scale` test in Task 2.
+- `loadModel()` called from the page after `init()`, with a file written at runtime: returns a handle and the model appears; called before `init()` or without glTF support: an error code, no crash → Task 4 checks.
 - A missing or corrupt `.glb`: `loadModel()` returns an invalid entity and prints an error; the app keeps running → Task 4 browser check with a missing path.
 - A sphere with very few segments (1 or 2): the helper clamps to a minimum (3 × 2) instead of producing degenerate geometry → Task 3 test.
 
@@ -49,14 +51,15 @@
 | `src/core/ARInput.h` (new) | `clientToCanvas` mapping (pure) | 2 |
 | `src/core/ARInput.cpp` (new) | Emscripten HTML5 callbacks → `ARBaseApp` hooks | 2 |
 | `src/core/ARPrimitives.h` (new) | cube / plane / sphere vertices and indices with colours (pure) | 3 |
-| `src/core/ARModel.h/.cpp` (new) | `gltfio` asset loading for `ARBaseApp::loadModel` | 4 |
+| `src/core/ARModel.h/.cpp` (new) | `gltfio` asset loading for `ARBaseApp::loadModel`, `webar_load_model` export | 4 |
 | `src/app/App.h/.cpp` | demo: primitives, anchor, model, tap switch | 1, 3, 4 |
 | `tests/core_tests.cpp` | tests for the pure parts | 1–3 |
 | `CMakeLists.txt` | `ARInput.cpp`, `ARModel.cpp`, `WEBAR_CANVAS_GLTF`, model embed | 2, 4 |
-| `scripts/build-host-tools.sh`, `.github/workflows/build.yml` | `uberz`; Pages artifact and deploy | 4, 5 |
-| `README.md`, `AGENTS.md`, `CLAUDE.md`, `GEMINI.md` | app API, template use, maintainer settings | 1–5 |
+| `scripts/build-host-tools.sh`, `.github/workflows/build.yml` | `uberz` and its cache (one commit, E1) | 4 |
+| `.github/workflows/pages.yml`, `docs/template.md` (new) | Pages deployment; template page with the license | 5 |
+| `README.md`, `AGENTS.md`, `CLAUDE.md`, `GEMINI.md` | app API, link to the template page | 1–4, after 5 |
 
-Browser checks reuse the stage 3/4 harness (`WebAR-Canvas-runs/stage5/`, outside the repository), run in the maintainer's Chrome if the built-in browser cannot load the build, and compare with `dev` in the same browser. Tasks whose app binary is unchanged need no browser run (checked by `videoTest.wasm` SHA-256).
+Browser checks reuse the stage 3/4 harness (`WebAR-Canvas-runs/stage5/`, outside the repository) and compare with `dev` in the same browser. They run through Playwright (installed as a plugin) first; only if that does not work does the maintainer run them in Chrome. Tasks whose app binary is unchanged need no browser run (checked by `videoTest.wasm` SHA-256).
 
 ---
 
@@ -114,17 +117,17 @@ Browser checks reuse the stage 3/4 harness (`WebAR-Canvas-runs/stage5/`, outside
                       double rectWidth, double rectHeight, int canvasWidth, int canvasHeight,
                       float &x, float &y);
   // ARBaseApp hooks (no-ops by default), coordinates in canvas pixels:
-  virtual void touchDown(float x, float y, int touchId) {}
-  virtual void touchMoved(float x, float y, int touchId) {}
-  virtual void touchUp(float x, float y, int touchId) {}
-  virtual void mouseDown(float x, float y, int button) {}
-  virtual void mouseMoved(float x, float y) {}
-  virtual void mouseUp(float x, float y, int button) {}
+  virtual void touchDown(float x, float y, int pointerId) {}   // pointerId: the touch identifier
+  virtual void touchMoved(float x, float y, int pointerId) {}
+  virtual void touchUp(float x, float y, int pointerId) {}
+  virtual void mouseDown(float x, float y, int button, int pointerId) {}  // pointerId 0
+  virtual void mouseMoved(float x, float y, int pointerId) {}
+  virtual void mouseUp(float x, float y, int button, int pointerId) {}
   virtual void windowResized(int width, int height) {}
   ```
   `ARInput.cpp` registers `emscripten_set_{touchstart,touchmove,touchend,touchcancel}_callback`, `emscripten_set_{mousedown,mousemove,mouseup}_callback` on the config's canvas selector and `emscripten_set_resize_callback` on the window, after a successful `init()`; it reads the canvas rectangle with `getBoundingClientRect` through EM_JS on each event. Touch callbacks report only changed touches (`isChanged`); `touchcancel` reports `touchUp`.
 
-- [ ] **Step 1: Write the failing tests:** `client_to_canvas_letterbox_wide` (element 1280×480, canvas 640×480: image spans x 320..960; client (640, 240) → (320, 240); client (100, 240) → false), `client_to_canvas_letterbox_tall` (element 640×960: image spans y 240..720), `client_to_canvas_corners` (top-left and bottom-right pixels of the image map to 0 and just under 640/480), `client_to_canvas_with_offset` (rectLeft/rectTop non-zero).
+- [ ] **Step 1: Write the failing tests:** `client_to_canvas_letterbox_wide` (element 1280×480, canvas 640×480: image spans x 320..960; client (640, 240) → (320, 240); client (100, 240) → false), `client_to_canvas_letterbox_tall` (element 640×960: image spans y 240..720), `client_to_canvas_corners` (top-left and bottom-right pixels of the image map to 0 and just under 640/480), `client_to_canvas_with_offset` (rectLeft/rectTop non-zero), `client_to_canvas_css_scale` (element 320×240 CSS showing a 640×480 buffer: client (160, 120) → (320, 240)).
 - [ ] **Step 2:** Run → build error. **Step 3:** Implement `clientToCanvas`; tests pass.
 - [ ] **Step 4:** Implement the hooks and `ARInput.cpp`; the demo's `touchDown` / `mouseDown` print `tap at (x, y)`.
 - [ ] **Step 5:** Harness: dispatch synthetic `MouseEvent`s and `TouchEvent`s on the canvas at known client points (inside the image, on a bar) and a window resize; expected console lines with the mapped coordinates, none for the bar, one `windowResized` per resize. Plus the `dev` comparison (unchanged tracking and frames).
@@ -159,30 +162,39 @@ Browser checks reuse the stage 3/4 harness (`WebAR-Canvas-runs/stage5/`, outside
 **Files:** Create `src/core/ARModel.h`, `src/core/ARModel.cpp`; modify `scripts/build-host-tools.sh` (add `uberz`), `.github/workflows/build.yml` (cache path for `uberz`, key `...-v2`), `CMakeLists.txt` (`WEBAR_CANVAS_GLTF`, link `gltfio_core` + `uberarchive`, embed `third_party/filament/third_party/models/AnimatedMorphCube/AnimatedMorphCube.glb@/assets/models/AnimatedMorphCube.glb`), `src/core/ARBaseApp.h/.cpp`, `src/app/App.*`, docs (README "Prerequisites": five host tools; AGENTS section 4).
 
 **Interfaces:**
-- Produces (Filament only, and only with `WEBAR_CANVAS_GLTF`):
+- Produces:
   ```cpp
-  // Loads a .glb / .gltf from the embedded file system, adds it to the scene, returns its root
-  // entity (invalid on failure, with an error printed). Units: the model's own (metres in glTF);
-  // scale it with the root transform.
-  utils::Entity loadModel(const std::string &path);
+  enum ARModelError { AR_MODEL_NOT_FOUND = -1, AR_MODEL_INVALID = -2,
+                      AR_MODEL_UNSUPPORTED = -3, AR_MODEL_NOT_READY = -4 };
+  // ARBaseApp: loads a .glb / .gltf from the Emscripten file system and adds it to the scene,
+  // at any time after init(). Returns a handle >= 0, or an ARModelError (NOT_READY before init(),
+  // UNSUPPORTED without WEBAR_CANVAS_GLTF or the Filament backend). Units: the model's own.
+  int loadModel(const std::string &path);
+  #ifdef WEBAR_RENDERER_FILAMENT
+  utils::Entity getModelEntity(int handle) const;  // the model's root entity (invalid if none)
+  #endif
+  // Exported for pages (EXPORTED_FUNCTIONS, called with ccall): forwards to the running app.
+  extern "C" int webar_load_model(const char *path);
   ```
   `ARModel` owns the `gltfio::AssetLoader`, `MaterialProvider` (ubershader archive), `ResourceLoader` and the loaded `FilamentAsset`s; destroyed before the renderer.
 
-- [ ] **Step 1:** Add `uberz` to the host tools and run `node build-docker.js` in the worktree (the script builds the missing tool); confirm `out/host/tools/uberz/uberz` exists and the import file lists it.
+- [ ] **Step 1 (one commit, E1):** add `uberz` to `scripts/build-host-tools.sh`, its path and a `-v2` key to the cache in `.github/workflows/build.yml`, and the five tools to the notes in `AGENTS.md` and `README.md`; run `node build-docker.js` in the worktree (the script builds the missing tool); confirm `out/host/tools/uberz/uberz` exists. Commit `build: add uberz to the Filament host tools for gltfio` (For #2).
 - [ ] **Step 2:** Link `gltfio_core` and `uberarchive` behind `WEBAR_CANVAS_GLTF`, implement `ARModel` and `loadModel`; the demo loads the morph cube at 80 mm on the marker, hidden; a tap (Task 2) switches cube and model.
 - [ ] **Step 3:** `node build-docker.js --test` green; `.wasm` size with `WEBAR_CANVAS_GLTF=ON` and `OFF` (two builds, recorded).
-- [ ] **Step 4:** Browser: screenshot of the model on the marker after a synthetic tap; a run with a missing model path (temporary local change) prints the error and keeps tracking; `dev` comparison for frames and tracking.
+- [ ] **Step 4:** Browser: screenshot of the model on the marker after a synthetic tap; from the page, `Module.FS_createDataFile` with the same `.glb` under another path and `ccall('webar_load_model', ...)` → a handle >= 0; a missing path → `AR_MODEL_NOT_FOUND`, tracking continues; `dev` comparison for frames and tracking.
 - [ ] **Step 5:** Docs; commit `feat(core): load glTF models with gltfio` (For #2). The CI run of the PR shows the host-tools cache rebuilt once with `uberz`.
 
-### Task 5: Template repository and GitHub Pages (#2 phase 6)
+### Task 5: Template repository and GitHub Pages (#2 phase 6) — writing subsession
 
-**Files:** Modify `.github/workflows/build.yml` (steps after the build: copy `videoTest.{html,js,wasm}` to `pages/` with `videoTest.html` also as `index.html`, `actions/upload-pages-artifact`; new job `deploy` with `needs: wasm`, `if: github.event_name == 'push' && github.ref == 'refs/heads/master'`, `permissions: pages: write, id-token: write`, `environment: github-pages`, `actions/deploy-pages`), `README.md` (section "Use this repository as a template": click "Use this template", write `src/app/App.cpp`, push, enable Pages), `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`.
+**Files (new only):** `.github/workflows/pages.yml`, `docs/template.md`. No change to `README.md`, `AGENTS.md`, `CLAUDE.md` or any existing file.
 
-No behaviour to unit-test; the check is the PR's workflow run (the artifact step runs, the deploy job is skipped on a PR) and, after the next release, the maintainer's settings.
+- `pages.yml`: `on: push` (all branches) and `workflow_dispatch`; job `build` with `if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)`, in `emscripten/emsdk:4.0.17` like `build.yml` (checkout with submodules, the same host-tools cache step and key, `sh scripts/build-host-tools.sh`, `sh scripts/build-wasm.sh`), then copy `build-wasm/videoTest.{html,js,wasm}` to `pages/` with `videoTest.html` also as `index.html`, and `actions/upload-pages-artifact`; job `deploy` (`needs: build`, `permissions: pages: write, id-token: write`, `environment: github-pages`, `actions/deploy-pages`). `concurrency: pages`.
+- `docs/template.md`: "Use this template", where to write the app (`src/app/App.cpp`, `ARBaseApp`), how the Pages deployment works and the two repository settings to change, how to restrict the deployment to another branch (replace the `if:` with a fixed branch name), and the license (LGPL-3.0 with the static-linking exception, `LICENSE`) at the top.
 
-- [ ] **Step 1:** Workflow changes; `node --test scripts/build-docker.test.js` still passes (unchanged).
-- [ ] **Step 2:** README and agent docs, including the two settings the maintainer must change.
-- [ ] **Step 3:** Commit `ci: publish the app to GitHub Pages from master` and `doc: describe the repository as a template` (For #2).
+No behaviour to unit-test; checks: `pages.yml` parses as YAML (`node -e` with a YAML-free check of the structure is not possible, so `python -c "import yaml"` if available, otherwise review); on the PR the workflow runs and its jobs are skipped (not the default branch); after the next release, the maintainer's settings.
+
+- [ ] **Step 1:** `pages.yml` and `docs/template.md` in the subsession's worktree, branch `feat/2-anchor-input-gltf-template-pages` from the stage branch; signed commits `ci: publish the app to GitHub Pages from the default branch` and `doc: describe the repository as a template`; no push.
+- [ ] **Step 2 (this session, after Task 4):** merge the sub-branch into the stage branch without force, delete it, then add the link to `docs/template.md` from `README.md` (and one line in `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`).
 
 ### Task 6: Stage review and PR
 
@@ -191,9 +203,7 @@ No behaviour to unit-test; the check is the PR's workflow run (the artifact step
 
 ## Execution and subsessions
 
-Task 1 comes first (the others use `getMarkerPose` / `attachToMarker`). Tasks 2, 3 and 4 all touch `ARBaseApp.h/.cpp`, `src/app/App.*` and `tests/core_tests.cpp`, and each needs a Docker build; the builds must not run concurrently (shared Emscripten cache volume and one CPU), so parallel writers would mostly wait for each other and then conflict on the same files. They run in sequence in this session.
-
-Task 5 touches only `.github/workflows/build.yml` and documentation and needs no local build: it can go to **one writing subsession** in its own worktree and branch `feat/2-anchor-input-gltf-template-pages`, created from the stage branch after Task 1, running in parallel with Tasks 2–4. Its `build.yml` edits (new steps after the build, new `deploy` job) are in different hunks from Task 4's (cache path and key); I merge its branch into the stage branch after Task 4, without force, and delete it. The code review in Task 6 is a read-only subsession.
+Approved by the maintainer: Tasks 1–4 run in this session, in sequence (they share `ARBaseApp`, `App`, `core_tests` and need serialised Docker builds). Task 5 goes to **one writing subsession**, started right after this plan is committed, in parallel with Tasks 1–4: its own worktree (`D:/kalwalt-github/WebAR-Canvas-wt/feat-2-pages`) on branch `feat/2-anchor-input-gltf-template-pages` from the stage branch, created **without initialising the submodules** (no build), touching only new files; it gets the "Where you work, and as whom" section of the original prompt, does not push and opens no PR. No other subsessions besides the read-only review in Task 6.
 
 ## Not in this stage
 
