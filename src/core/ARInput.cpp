@@ -7,7 +7,9 @@
 #include <emscripten.h>
 #include <emscripten/html5.h>
 
+#include <algorithm>
 #include <string>
+#include <vector>
 
 // The canvas element's client rectangle (left, top, width, height) into out[0..3].
 EM_JS(int, webar_canvas_rect, (const char *selector, double *out), {
@@ -27,6 +29,7 @@ struct ARInputBridge {
   static int lastWidth;
   static int lastHeight;
   static unsigned mouseButtonsDown; // bit per button whose mouseDown reached the app
+  static std::vector<int> touchesDown; // touch identifiers whose touchDown reached the app
 
   // Client coordinates to canvas pixels; false on a letterbox bar or outside the canvas,
   // unless clamped (up events), which maps such points to the image's nearest edge.
@@ -48,16 +51,25 @@ struct ARInputBridge {
     for (int i = 0; i < event->numTouches; ++i) {
       const EmscriptenTouchPoint &touch = event->touches[i];
       if (!touch.isChanged) continue;
-      // Up and cancel always reach the app, so it never keeps a pointer down.
+      // Up and cancel reach the app (clamped to the image) for every touch whose touchDown
+      // did, so it never keeps a pointer down; other ups are dropped.
       const bool up = eventType != EMSCRIPTEN_EVENT_TOUCHSTART &&
                       eventType != EMSCRIPTEN_EVENT_TOUCHMOVE;
+      const int id = static_cast<int>(touch.identifier);
+      const auto down = std::find(touchesDown.begin(), touchesDown.end(), id);
+      if (up && down == touchesDown.end()) continue;
       float x, y;
       if (!toCanvas(touch.clientX, touch.clientY, x, y, up)) continue;
-      const int id = static_cast<int>(touch.identifier);
       switch (eventType) {
-        case EMSCRIPTEN_EVENT_TOUCHSTART: app->touchDown(x, y, id); break;
+        case EMSCRIPTEN_EVENT_TOUCHSTART:
+          if (down == touchesDown.end()) touchesDown.push_back(id);
+          app->touchDown(x, y, id);
+          break;
         case EMSCRIPTEN_EVENT_TOUCHMOVE: app->touchMoved(x, y, id); break;
-        default: app->touchUp(x, y, id); break; // touchend, touchcancel
+        default: // touchend, touchcancel
+          touchesDown.erase(down);
+          app->touchUp(x, y, id);
+          break;
       }
     }
     return EM_TRUE; // no scrolling or zooming of the page from touches on the canvas
@@ -102,6 +114,7 @@ std::string ARInputBridge::selector;
 int ARInputBridge::lastWidth = -1;
 int ARInputBridge::lastHeight = -1;
 unsigned ARInputBridge::mouseButtonsDown = 0;
+std::vector<int> ARInputBridge::touchesDown;
 
 void ARBaseApp::installInputCallbacks(const std::string &canvasSelector) {
   ARInputBridge::app = this;

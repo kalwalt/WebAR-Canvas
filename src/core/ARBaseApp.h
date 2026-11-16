@@ -87,8 +87,10 @@ protected:
   ARNFTTracker *getTracker() const { return getNFTTracker(); }
 
   // Input hooks (no-ops by default). x, y are canvas drawing-buffer pixels (0..videoWidth,
-  // 0..videoHeight), with the letterbox bars of `object-fit: contain` excluded; pointerId is the
-  // browser's touch identifier for touches (multi-touch) and 0 for the mouse.
+  // 0..videoHeight). Down and move events on the letterbox bars of `object-fit: contain` are
+  // not delivered; every touch or button whose down event was gets its up event, clamped to the
+  // image's edge if it ends off the image. pointerId is the browser's touch identifier for
+  // touches (multi-touch) and 0 for the mouse.
   virtual void touchDown(float x, float y, int pointerId) {}
   virtual void touchMoved(float x, float y, int pointerId) {}
   virtual void touchUp(float x, float y, int pointerId) {} // also on touchcancel
