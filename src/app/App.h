@@ -2,7 +2,6 @@
 #define WEBAR_APP_H
 
 #include "core/ARBaseApp.h"
-#include <utils/Entity.h>
 
 // The demo app: a colourful 3D cube on the pinball marker.
 class App : public ARBaseApp {
@@ -25,8 +24,10 @@ public:
 private:
     void toggleModel(); // a tap or click switches between the cube and the glTF model
 
+#ifdef WEBAR_RENDERER_FILAMENT
     utils::Entity anchorEntity; // bound to marker 0, centred on it
     utils::Entity cubeEntity;   // child of anchorEntity, spinning (owned by ARBaseApp)
+#endif
     int modelHandle = -1;       // AnimatedMorphCube.glb on marker 0 (loadModel), or an error
     bool showModel = false;
 };

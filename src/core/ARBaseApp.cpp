@@ -16,6 +16,8 @@
 #ifdef WEBAR_CANVAS_GLTF
 #include "core/ARModel.h"
 #endif
+#elif defined(WEBAR_RENDERER_SOKOL)
+#include "core/SokolRenderer.h"
 #endif
 
 #include <emscripten.h>
@@ -364,6 +366,14 @@ ARBaseApp::~ARBaseApp() {
   if (vertexColorInstance) engine->destroy(vertexColorInstance);
   if (vertexColorMaterial) engine->destroy(vertexColorMaterial);
 }
+#elif defined(WEBAR_RENDERER_SOKOL)
+std::unique_ptr<IARRenderer> ARBaseApp::createRenderer() {
+  return std::make_unique<SokolRenderer>();
+}
+
+ARBaseApp::~ARBaseApp() {
+  if (gCurrentApp == this) gCurrentApp = nullptr; // webar_* calls after this find no app
+}
 #else
-#error "No rendering backend: build with WEBAR_RENDERER_FILAMENT (set by CMakeLists.txt)."
+#error "No rendering backend: set WEBAR_RENDERER (filament or sokol) in CMakeLists.txt."
 #endif

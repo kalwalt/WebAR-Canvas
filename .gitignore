@@ -146,6 +146,7 @@ vite.config.ts.timestamp-*
 # from project
 
 build-wasm
+build-wasm-sokol
 cmake-build-debug
 .idea/
 .vscode/

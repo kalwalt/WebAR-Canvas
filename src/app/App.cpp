@@ -1,10 +1,12 @@
 #include "app/App.h"
+#include <cstdio>
+#include <iostream>
+
+#ifdef WEBAR_RENDERER_FILAMENT
 #include <filament/Engine.h>
 #include <filament/TransformManager.h>
 #include <math/mat4.h>
 #include <utils/EntityManager.h>
-#include <cstdio>
-#include <iostream>
 
 using namespace filament;
 
@@ -84,6 +86,26 @@ void App::update(float deltaTime) {
                modelViewMatrix[12], modelViewMatrix[13], modelViewMatrix[14]);
     }
 }
+
+#else
+// The sokol backend (#13): the cube comes with the backend-neutral mesh API (next task).
+App::~App() = default;
+
+void App::setup() {
+    printf("Setup sokol scene (video background only)\n");
+}
+
+void App::toggleModel() {}
+
+void App::update(float) {
+    if (!isTracking) return;
+    static int trackLogCount = 0;
+    if (trackLogCount++ % 60 == 0) {
+        printf("[App] Tracking active! Pose Translation: [%.2f, %.2f, %.2f]\n",
+               modelViewMatrix[12], modelViewMatrix[13], modelViewMatrix[14]);
+    }
+}
+#endif
 
 void App::onMarkerFound(int markerIndex) {
     printf(">>> NFT Marker %d found <<<\n", markerIndex);

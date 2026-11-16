@@ -18,6 +18,21 @@ const cwd = process.cwd();
 const args = process.argv.slice(2);
 const isClean = args.includes('--clean');
 const runTests = args.includes('--test');
+// --dry-run prints the container commands after the checks, without starting Docker.
+const dryRun = args.includes('--dry-run');
+
+// --renderer filament|sokol (or --renderer=sokol): the rendering backend (WEBAR_RENDERER, #13).
+const RENDERERS = ['filament', 'sokol'];
+let renderer = 'filament';
+const rendererArgIndex = args.indexOf('--renderer');
+const rendererArg = args.find((arg) => arg.startsWith('--renderer='));
+if (rendererArgIndex !== -1) {
+  renderer = args[rendererArgIndex + 1] || '';
+} else if (rendererArg) {
+  renderer = rendererArg.slice('--renderer='.length);
+}
+// Each backend has its own build directory, so the two never share a CMake cache.
+const buildDirName = renderer === 'filament' ? 'build-wasm' : `build-wasm-${renderer}`;
 const jobsArgIndex = args.indexOf('-j');
 let jobs = 4;
 if (jobsArgIndex !== -1 && args[jobsArgIndex + 1]) {
@@ -41,6 +56,7 @@ console.log(`[build-docker] Host directory: ${cwd}`);
 console.log(`[build-docker] Path bridge:    ${bridgePath}`);
 console.log(`[build-docker] Parallel jobs:  ${jobs}`);
 console.log(`[build-docker] Run tests:      ${runTests ? 'yes' : 'no (use --test)'}`);
+console.log(`[build-docker] Renderer:       ${renderer} (${buildDirName}/)`);
 
 // Checks before Docker starts, so a missing prerequisite fails at once with a clear message
 // instead of in the middle of the container build.
@@ -49,9 +65,13 @@ function fail(lines) {
   process.exit(1);
 }
 
-// The submodule directories that CMakeLists.txt adds.
+if (!RENDERERS.includes(renderer)) {
+  fail([`Unknown renderer: ${renderer} (use --renderer ${RENDERERS.join(' or ')})`]);
+}
+
+// The submodule directories that CMakeLists.txt adds; the sokol backend needs no Filament.
 const submodules = [
-  ['third_party/filament', 'CMakeLists.txt'],
+  ...(renderer === 'filament' ? [['third_party/filament', 'CMakeLists.txt']] : []),
   ['third_party/WebARKitLib', 'WebARKit/WebARKitTrackers/WebARKitNFT/CMakeLists.txt']
 ];
 const missingSubmodules = submodules
@@ -64,6 +84,37 @@ if (missingSubmodules.length > 0) {
     '  git submodule update --init --recursive',
     'On Windows, check out Filament with LF line endings first (see README, "Prerequisites").'
   ]);
+}
+// sokol is vendored (third_party/sokol/README.md), not a submodule.
+if (renderer === 'sokol' && !fs.existsSync(path.join(cwd, 'third_party/sokol/sokol_gfx.h'))) {
+  fail([
+    'Missing third_party/sokol/sokol_gfx.h: the sokol headers are part of the repository.',
+    'Run this from the repository root (see third_party/sokol/README.md).'
+  ]);
+}
+
+// Build shell commands executed inside the container.
+// The host tools and the WASM build run the same scripts as the CI (.github/workflows/build.yml).
+// The path bridge keeps host tools built outside the container (e.g. in WSL) usable:
+// their ImportExecutables file refers to the host path. The sokol backend needs no host tools.
+const buildEnv = `WEBAR_RENDERER=${renderer} BUILD_DIR=/src/${buildDirName}`;
+const containerCommands = [
+  'apt-get update && apt-get install -y ninja-build',
+  ...(renderer === 'filament'
+    ? [
+        `mkdir -p "${bridgePath}/third_party/filament/out/"`,
+        `rm -rf "${bridgePath}/third_party/filament/out/host"`,
+        `ln -s /src/third_party/filament/out/host "${bridgePath}/third_party/filament/out/host"`,
+        'sh /src/scripts/build-host-tools.sh'
+      ]
+    : []),
+  `${buildEnv} sh /src/scripts/build-wasm.sh ${jobs}`,
+  ...(runTests ? [`${buildEnv} sh /src/scripts/test-wasm.sh ${jobs}`] : [])
+].join(' && ');
+
+if (dryRun) {
+  console.log(containerCommands.split(' && ').join('\n'));
+  process.exit(0);
 }
 
 // The timeout keeps a Docker that is still starting, or a remote context waiting for input,
@@ -84,26 +135,12 @@ if (dockerCheck.error || dockerCheck.status !== 0) {
 
 // Clean build directory if requested
 if (isClean) {
-  const buildDir = path.join(cwd, 'build-wasm');
+  const buildDir = path.join(cwd, buildDirName);
   if (fs.existsSync(buildDir)) {
-    console.log('[build-docker] Cleaning build-wasm directory...');
+    console.log(`[build-docker] Cleaning ${buildDirName} directory...`);
     fs.rmSync(buildDir, { recursive: true, force: true });
   }
 }
-
-// Build shell commands executed inside the container.
-// The host tools and the WASM build run the same scripts as the CI (.github/workflows/build.yml).
-// The path bridge keeps host tools built outside the container (e.g. in WSL) usable:
-// their ImportExecutables file refers to the host path.
-const containerCommands = [
-  'apt-get update && apt-get install -y ninja-build',
-  `mkdir -p "${bridgePath}/third_party/filament/out/"`,
-  `rm -rf "${bridgePath}/third_party/filament/out/host"`,
-  `ln -s /src/third_party/filament/out/host "${bridgePath}/third_party/filament/out/host"`,
-  'sh /src/scripts/build-host-tools.sh',
-  `sh /src/scripts/build-wasm.sh ${jobs}`,
-  ...(runTests ? [`sh /src/scripts/test-wasm.sh ${jobs}`] : [])
-].join(' && ');
 
 const dockerArgs = [
   'run',
@@ -134,4 +171,4 @@ if (result.status !== 0) {
   process.exit(result.status);
 }
 
-console.log('[build-docker] Build completed successfully! Artifacts in build-wasm/');
+console.log(`[build-docker] Build completed successfully! Artifacts in ${buildDirName}/`);

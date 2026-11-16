@@ -63,3 +63,64 @@ test('fails with a clear message when the Docker daemon cannot be reached', (t) 
   assert.match(result.stderr, /Docker is not available/);
   assert.doesNotMatch(result.stdout, /Starting Docker build/);
 });
+
+// --- The renderer switch (WEBAR_RENDERER=filament|sokol, #13) ---
+
+const SOKOL_MARKERS = [
+  'third_party/WebARKitLib/WebARKit/WebARKitTrackers/WebARKitNFT/CMakeLists.txt',
+  'third_party/sokol/sokol_gfx.h'
+];
+
+function runWith(dir, args) {
+  return spawnSync(process.execPath, [buildDocker, ...args], {
+    cwd: dir,
+    env: { ...process.env, DOCKER_HOST: 'tcp://127.0.0.1:1' },
+    encoding: 'utf8'
+  });
+}
+
+test('rejects an unknown renderer before Docker', (t) => {
+  const dir = makeTree(t, [...SUBMODULE_MARKERS, 'third_party/sokol/sokol_gfx.h']);
+  const result = runWith(dir, ['--renderer', 'vulkan']);
+  assert.strictEqual(result.status, 1);
+  assert.match(result.stderr, /Unknown renderer: vulkan/);
+  assert.doesNotMatch(result.stdout, /Starting Docker build/);
+});
+
+test('sokol needs no Filament submodule', (t) => {
+  const dir = makeTree(t, SOKOL_MARKERS);
+  const result = runWith(dir, ['--renderer', 'sokol']);
+  // Past the checks: it stops only because Docker cannot be reached.
+  assert.strictEqual(result.status, 1);
+  assert.doesNotMatch(result.stderr, /third_party\/filament/);
+  assert.match(result.stderr, /Docker is not available/);
+});
+
+test('sokol fails before Docker without the vendored sokol headers', (t) => {
+  const dir = makeTree(t, SOKOL_MARKERS.slice(0, 1));
+  const result = runWith(dir, ['--renderer=sokol']);
+  assert.strictEqual(result.status, 1);
+  assert.match(result.stderr, /third_party\/sokol\/sokol_gfx\.h/);
+  assert.doesNotMatch(result.stdout, /Starting Docker build/);
+});
+
+test('--dry-run with sokol builds into build-wasm-sokol without the host tools', (t) => {
+  const dir = makeTree(t, SOKOL_MARKERS);
+  const result = runWith(dir, ['--renderer', 'sokol', '--test', '--dry-run']);
+  assert.strictEqual(result.status, 0, result.stderr);
+  assert.match(result.stdout, /WEBAR_RENDERER=sokol/);
+  assert.match(result.stdout, /BUILD_DIR=\/src\/build-wasm-sokol/);
+  assert.match(result.stdout, /test-wasm\.sh/);
+  assert.doesNotMatch(result.stdout, /build-host-tools\.sh/);
+  assert.doesNotMatch(result.stdout, /Starting Docker build/);
+});
+
+test('--dry-run by default keeps the Filament build in build-wasm', (t) => {
+  const dir = makeTree(t, SUBMODULE_MARKERS);
+  const result = runWith(dir, ['--dry-run']);
+  assert.strictEqual(result.status, 0, result.stderr);
+  assert.match(result.stdout, /build-host-tools\.sh/);
+  assert.match(result.stdout, /WEBAR_RENDERER=filament/);
+  assert.match(result.stdout, /BUILD_DIR=\/src\/build-wasm /);
+  assert.doesNotMatch(result.stdout, /test-wasm\.sh/);
+});

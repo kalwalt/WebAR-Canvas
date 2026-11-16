@@ -14,7 +14,20 @@ endif()
 
 set(FILAMENT_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third_party/filament)
 set(WEBARKITLIB_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third_party/WebARKitLib)
+set(SOKOL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third_party/sokol)
 
+# --- Rendering backend (#13) ---
+# filament (default): Google Filament, with its host tools (matc, ...) and glTF through gltfio.
+# sokol: sokol_gfx (vendored headers in third_party/sokol), WebGL 2; Filament is not configured
+# at all, so neither its submodule nor its host tools are needed.
+set(WEBAR_RENDERER "filament" CACHE STRING "Rendering backend: filament or sokol")
+set_property(CACHE WEBAR_RENDERER PROPERTY STRINGS filament sokol)
+if(NOT WEBAR_RENDERER STREQUAL "filament" AND NOT WEBAR_RENDERER STREQUAL "sokol")
+    message(FATAL_ERROR "WEBAR_RENDERER must be filament or sokol, not '${WEBAR_RENDERER}'")
+endif()
+message(STATUS "WebAR-Canvas renderer: ${WEBAR_RENDERER}")
+
+if(WEBAR_RENDERER STREQUAL "filament")
 # --- KEY CONFIGURATION ---
 # 1. DISABLE Desktop OpenGL (this removes the dependency on BlueGL which caused the error)
 set(FILAMENT_SUPPORTS_OPENGL ON CACHE BOOL "" FORCE)
@@ -57,6 +70,7 @@ add_custom_command(
     DEPENDS ${CUBE_MATERIAL_INPUT}
     COMMENT "Compiling Filament material: ar_cube.mat"
 )
+endif() # WEBAR_RENDERER filament
 
 # --- WebARKitLib NFT (AR, ARICP, AR2, KPM, ARUtil + trackingMod/markerDecompress) ---
 # Only the NFT subdirectory is added, so no OpenCV is fetched.
@@ -97,38 +111,55 @@ set(SOURCES
     src/core/ARBaseEngine.cpp
     src/core/ARBaseApp.cpp
     src/core/ARInput.cpp
-    src/core/FilamentRenderer.cpp
-    ${MATERIAL_OUTPUT}
-    ${CUBE_MATERIAL_OUTPUT}
 )
 add_executable(${PROJECT_NAME} ${SOURCES})
 
-# --- Include Directories ---
 target_include_directories(${PROJECT_NAME} PRIVATE
     src/
     src/core/
     src/nft/
     ${CMAKE_CURRENT_BINARY_DIR}/generated
-    ${FILAMENT_SOURCE_DIR}/include
-    ${FILAMENT_SOURCE_DIR}/backend/include
-    ${FILAMENT_SOURCE_DIR}/libs/math/include
-    ${FILAMENT_SOURCE_DIR}/libs/utils/include
 )
+target_link_libraries(${PROJECT_NAME} PUBLIC ARNFTTracker)
 
-# --- LINKING ---
-# Here is the magic to make the backend work without BlueGL
-target_link_libraries(${PROJECT_NAME} PUBLIC
-    filament
-    # We use --whole-archive on backend to prevent the linker from removing the GLES driver
-    "-Wl,--whole-archive" backend "-Wl,--no-whole-archive"
-    utils
-    ibl
-    geometry
-    ARNFTTracker
-)
-
-# The Filament backend: enables the Filament getters of ARBaseApp (getEngine, getScene, getCamera).
-target_compile_definitions(${PROJECT_NAME} PRIVATE WEBAR_RENDERER_FILAMENT=1)
+if(WEBAR_RENDERER STREQUAL "filament")
+    target_sources(${PROJECT_NAME} PRIVATE
+        src/core/FilamentRenderer.cpp
+        ${MATERIAL_OUTPUT}
+        ${CUBE_MATERIAL_OUTPUT}
+    )
+    target_include_directories(${PROJECT_NAME} PRIVATE
+        ${FILAMENT_SOURCE_DIR}/include
+        ${FILAMENT_SOURCE_DIR}/backend/include
+        ${FILAMENT_SOURCE_DIR}/libs/math/include
+        ${FILAMENT_SOURCE_DIR}/libs/utils/include
+    )
+    # Here is the magic to make the backend work without BlueGL
+    target_link_libraries(${PROJECT_NAME} PUBLIC
+        filament
+        # We use --whole-archive on backend to prevent the linker from removing the GLES driver
+        "-Wl,--whole-archive" backend "-Wl,--no-whole-archive"
+        utils
+        ibl
+        geometry
+    )
+    # The Filament backend: enables the Filament API of ARBaseApp (getEngine, createBox, ...).
+    target_compile_definitions(${PROJECT_NAME} PRIVATE WEBAR_RENDERER_FILAMENT=1)
+    target_link_options(${PROJECT_NAME} PRIVATE
+        "-sFULL_ES3=1"
+        "--embed-file=${MATERIAL_OUTPUT}@/assets/video_background.fil"
+        "--embed-file=${CUBE_MATERIAL_OUTPUT}@/assets/ar_cube.fil"
+    )
+    add_dependencies(${PROJECT_NAME} filament)
+else()
+    # sokol_gfx, GLES3 backend (WebGL 2); the implementation is compiled in sokol_impl.cpp.
+    target_sources(${PROJECT_NAME} PRIVATE
+        src/core/SokolRenderer.cpp
+        src/core/sokol_impl.cpp
+    )
+    target_include_directories(${PROJECT_NAME} PRIVATE ${SOKOL_DIR})
+    target_compile_definitions(${PROJECT_NAME} PRIVATE WEBAR_RENDERER_SOKOL=1 SOKOL_GLES3=1)
+endif()
 
 set_target_properties(${PROJECT_NAME} PROPERTIES OUTPUT_NAME "videoTest")
 set_target_properties(${PROJECT_NAME} PROPERTIES SUFFIX ".html")
@@ -136,7 +167,6 @@ set_target_properties(${PROJECT_NAME} PROPERTIES SUFFIX ".html")
 target_link_options(${PROJECT_NAME} PRIVATE
     "-O3"
     "-sUSE_WEBGL2=1"
-    "-sFULL_ES3=1"
     "-sALLOW_MEMORY_GROWTH=1"
     "-sINITIAL_MEMORY=268435456"
     "-sSTACK_SIZE=5242880"
@@ -148,8 +178,6 @@ target_link_options(${PROJECT_NAME} PRIVATE
     "-sEXPORTED_FUNCTIONS=['_main','_webar_load_model','_webar_place_model']"
     "-sEXPORTED_RUNTIME_METHODS=['GL','UTF8ToString','ccall','FS_createDataFile']"
     "--shell-file=${CMAKE_CURRENT_SOURCE_DIR}/src/shell.html"
-    "--embed-file=${MATERIAL_OUTPUT}@/assets/video_background.fil"
-    "--embed-file=${CUBE_MATERIAL_OUTPUT}@/assets/ar_cube.fil"
     "--embed-file=${CMAKE_CURRENT_SOURCE_DIR}/assets/camera_para.dat@/assets/camera_para.dat"
     "--embed-file=${CMAKE_CURRENT_SOURCE_DIR}/assets/pinball.fset@/assets/markers/pinball.fset"
     "--embed-file=${CMAKE_CURRENT_SOURCE_DIR}/assets/pinball.fset3@/assets/markers/pinball.fset3"
@@ -157,10 +185,14 @@ target_link_options(${PROJECT_NAME} PRIVATE
     "-g"
 )
 
-add_dependencies(${PROJECT_NAME} filament ARNFTTracker)
+add_dependencies(${PROJECT_NAME} ARNFTTracker)
 
 # --- glTF models through Filament's gltfio (needs the uberz host tool for uberarchive) ---
 option(WEBAR_CANVAS_GLTF "Load glTF models with Filament's gltfio (ARBaseApp::loadModel)" ON)
+if(WEBAR_CANVAS_GLTF AND NOT WEBAR_RENDERER STREQUAL "filament")
+    message(STATUS "WEBAR_CANVAS_GLTF is ignored with WEBAR_RENDERER=${WEBAR_RENDERER}: glTF needs Filament's gltfio")
+    set(WEBAR_CANVAS_GLTF OFF CACHE BOOL "" FORCE)
+endif()
 if(WEBAR_CANVAS_GLTF)
     target_sources(${PROJECT_NAME} PRIVATE src/core/ARModel.cpp)
     target_compile_definitions(${PROJECT_NAME} PRIVATE WEBAR_CANVAS_GLTF=1)
