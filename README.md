@@ -34,6 +34,7 @@ By running Google Filament and WebARKitLib side-by-side in native code, WebAR-Ca
 
 - **Pure C++ Architecture**: Zero Embind overhead inside the engine core. Matrices, tracking states, and application lifecycle are handled directly in native C++.
 - **Google Filament WebGL 2**: Modern Physically Based Rendering (PBR) engine managing camera projection, lights, materials, and scene graph.
+- **Two rendering backends**: Google Filament (the default: PBR, glTF models) or [sokol_gfx](https://github.com/floooh/sokol) (`--renderer sokol`: a lighter build that needs neither the Filament submodule nor its host tools). The tracking, the main loop and the backend-neutral mesh API are the same on both.
 - **Natural Feature Tracking (NFT)**: Native integration of WebARKitLib (AR, AR2, KPM / FreakMatcher), supporting planar image markers without QR codes or black borders.
 - **Dual Video Pipeline**:
   - **GPU Path**: Streams webcam frames directly to a WebGL texture rendered on an unlit full-screen quad in normalized device coordinates (`vertexDomain: device`).
@@ -95,14 +96,15 @@ WebAR-Canvas/
 │   ├── video_background.mat    # Fullscreen device-domain video quad shader
 │   └── ar_cube.mat             # Unlit vertex-colored 3D entity shader
 ├── src/                        # Native C++ source code
-│   ├── core/                   # Engine (main loop, tracking) and the IARRenderer / FilamentRenderer backend
+│   ├── core/                   # Engine (main loop, tracking), IARRenderer and its backends (FilamentRenderer, SokolRenderer)
 │   ├── app/App.h/.cpp          # The application: the 3D AR scene (a cube on the marker)
 │   ├── main.cpp                # Entry point
 │   ├── shell.html              # Emscripten HTML shell template
 │   └── nft/                    # Native C++ NFT tracking subsystem
 │       └── ARNFTTracker.h/.cpp # NFT tracker: adapter over WebARKitLib's ARToolKitNFTCore
 ├── third_party/
-│   ├── filament/               # Google Filament submodule
+│   ├── filament/               # Google Filament submodule (the Filament renderer only)
+│   ├── sokol/                  # sokol_gfx.h + sokol_log.h, vendored (the sokol renderer; see its README)
 │   └── WebARKitLib/            # WebARKitLib submodule (AR, AR2, ARICP, KPM, WebARKitNFT helpers)
 ├── build-wasm/                 # Compiled output directory (HTML, JS, WASM)
 ├── build-docker.js             # Cross-platform Node.js build runner for Docker
@@ -163,14 +165,19 @@ node build-docker.js --clean
 
 # Build, then run the NFT tracker tests with Node (no browser or webcam needed)
 node build-docker.js --test
+
+# The sokol renderer instead of Filament: no Filament submodule, no host tools
+node build-docker.js --renderer sokol --test
 ```
+
+**Rendering backend.** `WEBAR_RENDERER` (CMake) chooses the renderer: `filament` (default) or `sokol`. `node build-docker.js --renderer sokol` builds it into its own folder, `build-wasm-sokol/` (the same `videoTest.*` files), skips the Filament host tools and does not need `third_party/filament` checked out: sokol is two headers vendored in `third_party/sokol/`. glTF loading needs Filament's `gltfio`, so it is off with sokol. `--dry-run` prints the commands the container would run, without starting Docker. Sizes at the time of writing (`videoTest.wasm`, linked with `-g`): about 8.7 MB with Filament (2.9 MB gzipped) and 4.4 MB with sokol (1.7 MB gzipped).
 
 The first build also compiles the Filament host tools (`matc`, `resgen`, `cmgen`, `glslminifier`, `uberz`) into `third_party/filament/out/host` with `scripts/build-host-tools.sh`; this takes a while once and is skipped afterwards. The same scripts run in CI (`.github/workflows/build.yml`) on every pull request to `dev` and `master`.
 
-Before starting Docker, `build-docker.js` checks that it runs from the repository root with both submodules checked out and that the Docker daemon answers; otherwise it stops at once and says what to do.
+Before starting Docker, `build-docker.js` checks that it runs from the repository root with the submodules it needs checked out (both for Filament; only WebARKitLib for sokol) and that the Docker daemon answers; otherwise it stops at once and says what to do.
 
 ### Build Artifacts
-Upon completion, the following artifacts are generated in `build-wasm/`:
+Upon completion, the following artifacts are generated in `build-wasm/` (`build-wasm-sokol/` with `--renderer sokol`):
 - `videoTest.html`: The ready-to-run HTML shell.
 - `videoTest.js`: Emscripten JavaScript runtime glue.
 - `videoTest.wasm`: The compiled native C++ engine binary.
@@ -201,7 +208,7 @@ Open `http://localhost:8000/videoTest.html` in Chrome, Edge, or Firefox.
 
 ## 🎨 Developing Your Own AR Application
 
-An app derives from `ARBaseApp` and overrides the hooks it needs; the demo is `src/app/App.h/.cpp`:
+An app derives from `ARBaseApp` and overrides the hooks it needs; the demo is `src/app/App.h/.cpp`, and the same source builds with both renderers:
 
 ```cpp
 #include "core/ARBaseApp.h"
@@ -209,20 +216,17 @@ An app derives from `ARBaseApp` and overrides the hooks it needs; the demo is `s
 class MyApp : public ARBaseApp {
 protected:
     void setup() override {
-        // Once, when the renderer and the tracker are ready: create your entities.
-        // getEngine() / getScene() / getCamera() give the Filament objects (Filament build).
-        // attachToMarker(entity, 0) keeps an entity on marker 0, centred, hidden while lost.
+        // Once, when the renderer and the tracker are ready: create your meshes.
+        // The mesh API works with every renderer: unlit, vertex-coloured primitives in mm.
         const float red[4] = {1, 0, 0, 1};
-        utils::Entity cube = createCube(80.0f, red);  // also createBox, createPlane, createSphere
-        attachToMarker(cube, 0);
-        // glTF: a handle, or a negative ARModelError; 80 mm high on marker 0.
-        int model = loadModel("/assets/models/AnimatedMorphCube.glb");
-        if (model >= 0) placeModelOnMarker(model, 0, 80.0f);
+        cube = addCube(80.0f, red);  // also addBox, addPlane, addSphere; an id, or -1
+        attachMeshToMarker(cube, 0); // on marker 0, centred, hidden while it is lost
     }
 
     void update(float deltaTime) override {
         // Every frame: marker 0's pose is getModelViewMatrix() while getIsTracking() is true;
         // getMarkerPose(i, matrix) gives any marker's pose.
+        // setMeshLocalTransform(cube, m) moves the cube relative to its marker.
     }
 
     void draw() override {
@@ -233,12 +237,23 @@ protected:
     void onMarkerLost(int markerIndex) override { /* a marker is no longer tracked */ }
 
     // Input, in canvas pixels (e.g. 0..640 x 0..480); pointerId tells touches apart.
-    void touchDown(float x, float y, int pointerId) override { }
+    void touchDown(float x, float y, int pointerId) override { setMeshVisible(cube, false); }
     void mouseDown(float x, float y, int button, int pointerId) override { }
+
+private:
+    int cube = -1;
 };
 
 AR_APP_MAIN(MyApp, 640, 480, "/assets/markers/pinball")
 ```
+
+The mesh API covers what the demo needs and no more: no materials, textures or lighting. For those, a Filament app (the default renderer) also has the Filament-only API: `getEngine()` / `getScene()` / `getCamera()`, `createBox` / `createCube` / `createPlane` / `createSphere` returning Filament entities, `attachToMarker(entity, i)`, and glTF models with `loadModel(path)` and `placeModelOnMarker(handle, i, sizeMm)`. With sokol, the glTF calls report failure:
+
+| Call (sokol build) | Returns |
+|---|---|
+| `loadModel(path)` | -3 (`AR_MODEL_UNSUPPORTED`) |
+| `webar_load_model(path)` (page, `Module.ccall`) | -3 (`AR_MODEL_UNSUPPORTED`) |
+| `webar_place_model(handle, marker, sizeMm)` (page) | 0 (failure) |
 
 `AR_APP_MAIN` only fills an `ARAppConfig` (canvas selector, camera frame size, camera parameter file, marker paths) and calls `runApp()`. You can fill the struct in code instead, and the page can override it at runtime by setting `Module.webarConfig` before the module starts, for example:
 
@@ -276,5 +291,6 @@ This project is licensed under the **GNU Lesser General Public License v3.0** (L
 
 ### Third-Party Licenses & Acknowledgements
 - **[Google Filament](https://github.com/google/filament)**: Apache 2.0 License.
+- **[sokol](https://github.com/floooh/sokol)** (`sokol_gfx.h`, `sokol_log.h`, vendored in `third_party/sokol/`): zlib/libpng License.
 - **[WebARKitLib](https://github.com/webarkit/WebARKitLib)** / **[jsartoolkitNFT](https://github.com/webarkit/jsartoolkitNFT)**: LGPL-3.0 / GPL-3.0 License.
 - **[ARToolKit](https://github.com/artoolkitx/artoolkit5)**: GPL-3.0 License.

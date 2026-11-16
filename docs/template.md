@@ -30,10 +30,18 @@ WebAR-Canvas is a GitHub template repository: you can start your own WebAR app f
 The app is a class derived from `ARBaseApp` (`src/core/ARBaseApp.h`). The demo, a cube on the pinball marker, is in `src/app/App.h` and `src/app/App.cpp`: edit or replace it with your own.
 
 - Override the hooks you need: `setup()` (once, when the renderer and the tracker are ready), `update(float deltaTime)` and `draw()` (every frame), `onMarkerFound(int)` and `onMarkerLost(int)`.
-- Marker 0's pose is `getModelViewMatrix()` while `getIsTracking()` is true; `getMarkerPose(i, m)` gives any marker's. In the Filament build, `getEngine()`, `getScene()` and `getCamera()` give the Filament objects to create your entities with.
-- `attachToMarker(entity, i)` keeps an entity on marker `i`, centred, hidden while the marker is lost.
-- `createBox`, `createCube`, `createPlane` and `createSphere` make coloured primitives (millimetres).
-- `loadModel(path)` loads a glTF / GLB model and `placeModelOnMarker(handle, i, sizeMm)` stands it on a marker; put your models under `/assets/models/` with `--embed-file` in `CMakeLists.txt`, or let the page write them at runtime with `Module.FS_createDataFile` and load them with `Module.ccall('webar_load_model', 'number', ['string'], [path])` and `webar_place_model(handle, marker, sizeMm)`.
+- Marker 0's pose is `getModelViewMatrix()` while `getIsTracking()` is true; `getMarkerPose(i, m)` gives any marker's.
+- **Meshes, on every renderer:** `addBox`, `addCube`, `addPlane` and `addSphere` make unlit, vertex-coloured primitives (millimetres) and return an id (or -1). `attachMeshToMarker(id, i)` keeps a mesh on marker `i`, centred, hidden while the marker is lost; `setMeshLocalTransform(id, m)` moves it relative to the marker; `setMeshVisible` and `removeMesh`. This is the API the demo uses, so your app builds with both renderers. It has no materials, textures or lighting.
+- **Filament only** (the default renderer): `getEngine()`, `getScene()` and `getCamera()` give the Filament objects; `createBox` / `createCube` / `createPlane` / `createSphere` return Filament entities, and `attachToMarker(entity, i)` binds an entity to a marker. `loadModel(path)` loads a glTF / GLB model and `placeModelOnMarker(handle, i, sizeMm)` stands it on a marker; put your models under `/assets/models/` with `--embed-file` in `CMakeLists.txt`, or let the page write them at runtime with `Module.FS_createDataFile` and load them with `Module.ccall('webar_load_model', 'number', ['string'], [path])` and `webar_place_model(handle, marker, sizeMm)`.
+- **The renderer** is chosen at build time: `node build-docker.js` (Filament) or `node build-docker.js --renderer sokol` (sokol_gfx: a lighter build that needs neither the Filament submodule nor its host tools; output in `build-wasm-sokol/`). With sokol, the glTF calls report failure:
+
+  | Call (sokol build) | Returns |
+  |---|---|
+  | `loadModel(path)` | -3 (`AR_MODEL_UNSUPPORTED`) |
+  | `webar_load_model(path)` (page) | -3 (`AR_MODEL_UNSUPPORTED`) |
+  | `webar_place_model(handle, marker, sizeMm)` (page) | 0 (failure) |
+
+  The Pages workflow below publishes the Filament build.
 - Input: override `touchDown`, `touchMoved`, `touchUp`, `mouseDown`, `mouseMoved`, `mouseUp` (canvas pixels, with a pointer id) and `windowResized`.
 - `AR_APP_MAIN(App, 640, 480, "/assets/markers/pinball")` defines `main()`: it fills an `ARAppConfig` (canvas selector, camera frame size, camera parameter file, marker paths) and calls `runApp()`. You can fill `ARAppConfig` in code instead, and the page can override it at runtime with `Module.webarConfig`.
 - Files the app reads at runtime (markers, materials, camera parameters) are embedded in the `.wasm` by the `--embed-file` options in `CMakeLists.txt`; add yours there.
