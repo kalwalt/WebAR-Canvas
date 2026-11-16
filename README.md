@@ -1,7 +1,7 @@
 # WebAR-Canvas
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/kalwalt/WebAR-Canvas/dev/assets/pinball.jpg" alt="WebAR-Canvas Banner" width="280" />
+  <img src="assets/pinball.jpg" alt="WebAR-Canvas Banner: the pinball reference marker" width="280" />
 </p>
 
 <p align="center">
@@ -86,12 +86,12 @@ By running Google Filament and WebARKitLib side-by-side in native code, WebAR-Ca
 
 ```
 WebAR-Canvas/
-├── assets/                     # Embedded runtime assets
+├── assets/                     # Runtime assets embedded in the .wasm, and the printable marker
 │   ├── camera_para.dat         # Camera intrinsic calibration file
 │   ├── pinball.fset            # AR2 multi-resolution surface template dataset
 │   ├── pinball.fset3           # KPM FREAK point feature descriptor dataset
 │   ├── pinball.iset            # Compressed multi-scale image pyramid dataset
-│   └── pinball.jpg             # Reference marker image for testing
+│   └── pinball.jpg             # Printable reference marker (not embedded; source of the pinball.* dataset)
 ├── materials/                  # Filament source shaders (.mat)
 │   ├── video_background.mat    # Fullscreen device-domain video quad shader
 │   └── ar_cube.mat             # Unlit vertex-colored 3D entity shader
@@ -198,7 +198,7 @@ python -m http.server 8000 --directory build-wasm
 Open `http://localhost:8000/videoTest.html` in Chrome, Edge, or Firefox.
 
 ### 3. Test with the Pinball Marker
-1. Display or print the reference marker image located at [`assets/pinball.jpg`](assets/pinball.jpg).
+1. Display or print the reference marker image located at [`assets/pinball.jpg`](assets/pinball.jpg) (from [WebARKitLib](https://github.com/webarkit/WebARKitLib), the image the `pinball.*` dataset was generated from). Printed at its own 220 dpi it is 189 × 236 mm, the size the dataset expects, so poses come out in true millimetres.
 2. Point your camera at the marker.
 3. When recognized:
    - Console logs will report: `>>> NFT Marker 0 found <<<`.
