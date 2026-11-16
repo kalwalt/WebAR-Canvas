@@ -198,7 +198,7 @@ python -m http.server 8000 --directory build-wasm
 Open `http://localhost:8000/videoTest.html` in Chrome, Edge, or Firefox.
 
 ### 3. Test with the Pinball Marker
-1. Display or print the reference marker image located at [`assets/pinball.jpg`](assets/pinball.jpg) (from [WebARKitLib](https://github.com/webarkit/WebARKitLib), the image the `pinball.*` dataset was generated from). Printed at its own 220 dpi it is 189 × 236 mm, the size the dataset expects, so poses come out in true millimetres.
+1. Display or print the reference marker image located at [`assets/pinball.jpg`](assets/pinball.jpg) (WebARKitLib's `tests/pinball.jpg`, the image the `pinball.*` dataset was generated from, resized to the dataset's 893 × 1117 pixels at 120 dpi). Printed at its own 120 dpi it is 189 × 236 mm, the size the dataset expects, so poses come out in true millimetres.
 2. Point your camera at the marker.
 3. When recognized:
    - Console logs will report: `>>> NFT Marker 0 found <<<`.
