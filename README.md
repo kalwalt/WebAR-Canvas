@@ -1,12 +1,12 @@
 # WebAR-Canvas
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/kalwalt/WebAR-Canvas/dev/assets/pinball.jpg" alt="WebAR-Canvas Banner" width="280" />
+  <img src="assets/pinball.jpg" alt="WebAR-Canvas Banner: the pinball reference marker" width="280" />
 </p>
 
 <p align="center">
   <strong>High-performance, pure C++ Augmented Reality framework for the Web</strong><br />
-  Powered by <strong>Google Filament</strong> (PBR Rendering) and <strong>WebARKitLib</strong> (Natural Feature Tracking).
+  Powered by <strong>WebARKitLib</strong> (Natural Feature Tracking), rendering with <strong>Google Filament</strong> (PBR, the default) or <strong>sokol_gfx</strong> (a lighter alternative).
 </p>
 
 <p align="center">
@@ -14,7 +14,8 @@
   <a href="https://en.cppreference.com/w/cpp/17"><img src="https://img.shields.io/badge/C%2B%2B-17-00599C?logo=c%2B%2B" alt="C++17" /></a>
   <a href="https://webassembly.org/"><img src="https://img.shields.io/badge/WebAssembly-WASM-654FF0?logo=webassembly&logoColor=white" alt="WebAssembly" /></a>
   <a href="https://emscripten.org/"><img src="https://img.shields.io/badge/Emscripten-4.0.17-orange" alt="Emscripten 4.0.17" /></a>
-  <a href="https://github.com/google/filament"><img src="https://img.shields.io/badge/Renderer-Google_Filament-4285F4?logo=google" alt="Google Filament" /></a>
+  <a href="https://github.com/google/filament"><img src="https://img.shields.io/badge/Renderer-Google_Filament_%28default%29-4285F4?logo=google" alt="Renderer: Google Filament (default)" /></a>
+  <a href="https://github.com/floooh/sokol"><img src="https://img.shields.io/badge/Renderer-sokol__gfx_%28alternative%29-8B2E2E" alt="Renderer: sokol_gfx (alternative)" /></a>
   <a href="https://www.khronos.org/webgl/"><img src="https://img.shields.io/badge/WebGL-2.0-990000?logo=webgl&logoColor=white" alt="WebGL 2.0" /></a>
   <a href="https://www.gnu.org/licenses/lgpl-3.0"><img src="https://img.shields.io/badge/License-LGPL_v3-blue.svg" alt="License: LGPL v3" /></a>
   <a href="https://github.com/kalwalt/WebAR-Canvas/pulls"><img src="https://img.shields.io/badge/PRs-welcome-brightgreen.svg" alt="PRs Welcome" /></a>
@@ -86,12 +87,12 @@ By running Google Filament and WebARKitLib side-by-side in native code, WebAR-Ca
 
 ```
 WebAR-Canvas/
-├── assets/                     # Embedded runtime assets
+├── assets/                     # Runtime assets embedded in the .wasm, and the printable marker
 │   ├── camera_para.dat         # Camera intrinsic calibration file
 │   ├── pinball.fset            # AR2 multi-resolution surface template dataset
 │   ├── pinball.fset3           # KPM FREAK point feature descriptor dataset
 │   ├── pinball.iset            # Compressed multi-scale image pyramid dataset
-│   └── pinball.jpg             # Reference marker image for testing
+│   └── pinball.jpg             # Printable reference marker (not embedded; source of the pinball.* dataset)
 ├── materials/                  # Filament source shaders (.mat)
 │   ├── video_background.mat    # Fullscreen device-domain video quad shader
 │   └── ar_cube.mat             # Unlit vertex-colored 3D entity shader
@@ -198,7 +199,7 @@ python -m http.server 8000 --directory build-wasm
 Open `http://localhost:8000/videoTest.html` in Chrome, Edge, or Firefox.
 
 ### 3. Test with the Pinball Marker
-1. Display or print the reference marker image located at [`assets/pinball.jpg`](assets/pinball.jpg).
+1. Display or print the reference marker image located at [`assets/pinball.jpg`](assets/pinball.jpg) (WebARKitLib's `tests/pinball.jpg`, the image the `pinball.*` dataset was generated from, resized to the dataset's 893 × 1117 pixels at 120 dpi). Printed at its own 120 dpi it is 189 × 236 mm, the size the dataset expects, so poses come out in true millimetres.
 2. Point your camera at the marker.
 3. When recognized:
    - Console logs will report: `>>> NFT Marker 0 found <<<`.
