@@ -29,6 +29,7 @@ The entire application lifecycle, computer vision tracking, camera projection ca
 - Both draw the camera video from the same WebGL texture (`src/core/ARVideoTexture.*`: created once, filled from `<video id="ar-video">` with `texImage2D` on every camera frame, imported by each backend).
 - The backend-neutral mesh API (`IARRenderer::addMesh / setMeshTransform / setMeshVisible / removeMesh`; for apps `ARBaseApp::addBox / addCube / addPlane / addSphere`, `attachMeshToMarker`, `setMeshLocalTransform`, `setMeshVisible`, `removeMesh`) covers only unlit, vertex-coloured meshes: what the demo needs. Materials, textures and lighting are deliberately not in it. `ARMeshAnchors` (`src/core/ARMeshAnchors.h`, pure, tested in `core_tests`) binds mesh ids to markers and gives each mesh `anchored * local` (all zeros while lost), reading poses once per camera frame. The demo (`src/app/App.cpp`) uses only this API for the cube, so it is one source for both backends.
 - Keep Filament (and sokol) types out of `ARBaseEngine`; renderer-specific code goes in the renderer, and Filament-only app API behind `WEBAR_RENDERER_FILAMENT`.
+- Destruction order: `~App` and `~ARBaseApp` run before `~ARBaseEngine` releases the renderer, so the app releases its own entities, glTF assets and anchors first. In `FilamentRenderer`, meshes are destroyed before the vertex-colour material they share, and the engine last. In `SokolRenderer`, `sg_shutdown()` releases every sokol resource, then the injected video texture is deleted with `glDeleteTextures` (sokol never deletes injected textures).
 - sokol pitfalls (vendored commit, see `third_party/sokol/README.md`):
   - Raw GL calls (the video upload, `createVideoTexture`) change GL state behind sokol's back: call `sg_reset_state_cache()` after them, before the next sokol call.
   - An injected texture (`sg_image_desc.gl_texture`) keeps its own mip range, but sokol's GL samplers always use a mipmap min filter: set `GL_TEXTURE_MAX_LEVEL` to 0 on a one-level injected texture, or it is incomplete and samples black (no error, not even with `SOKOL_DEBUG`).
@@ -220,7 +221,7 @@ Allowed types: `feat`, `fix`, `perf`, `doc`, `refactor`, `test`, `style`, `chore
 The `/verify-wasm` skill (`.claude/skills/verify-wasm/`) runs this sequence.
 
 ### Browser checks
-- The built-in browser of the Claude desktop app blocks the camera: feed the page a synthetic source (`canvas.captureStream()` drawing a video file or `assets/pinball.jpg`) instead of `getUserMedia`.
+- The built-in browser of the Claude desktop app blocks the camera: feed the page a synthetic source (`canvas.captureStream()` drawing a recorded video or `third_party/WebARKitLib/tests/data/pinball-demo.jpg` (the marker in a scene, also used by `nft_tests`)) instead of `getUserMedia`.
 - A hidden or covered window stops `requestAnimationFrame` (Playwright's Chrome drops to 1 Hz): keep the window uncovered and discard runs with too few rAF ticks.
 - Compare builds in the same browser, alternating runs; read the pose as the mean over a run (single printed lines jitter by ±4 mm).
 - Playwright screenshots take ~4 s and can show a stale frame: confirm a state change over several captures.
@@ -236,6 +237,6 @@ Set `Module.webarProfile = { enabled: true }` in the page (it is checked on ever
 - **`agents/wasm-reviewer.md`**: a read-only reviewer (Read, Grep, Glob) that checks a diff against the rules in sections 2 and 4 of this file. Ask for it before a PR.
 - **`skills/verify-wasm/`**: `/verify-wasm` runs the checks of section 6 (tests, serve, console lines) for one or both renderers.
 - **`settings.json`**:
-  - Allows `node build-docker.js`, the runner tests and read-only git commands without a prompt.
+  - Allows `node build-docker.js`, the runner tests and read-only git commands without a prompt; git's `--output=<file>` (which writes a file) is denied.
   - A `PreToolUse` hook (`hooks/guard-submodules.js`, tested by `hooks/guard-submodules.test.js`) blocks Edit / Write / NotebookEdit under `third_party/filament/` and `third_party/WebARKitLib/`: changes there belong upstream (WebARKitLib) or are build products. `third_party/sokol/` is not blocked, so its update procedure works.
 - Personal, machine-specific notes go in `CLAUDE.local.md` at the repository root (git-ignored), not in the shared files.

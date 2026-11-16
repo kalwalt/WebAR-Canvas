@@ -32,7 +32,7 @@ Open `http://localhost:8000/videoTest.html`. Stop the server at the end.
 
 ## 3. Check in the browser
 
-The page asks for the camera (`getUserMedia` in `src/shell.html`). The Claude desktop app's built-in browser blocks it: either use a browser with a camera pointed at `assets/pinball.jpg`, or replace `navigator.mediaDevices.getUserMedia` before the page starts with one that returns `canvas.captureStream()` of a canvas drawing `assets/pinball.jpg` (or a recorded video). Keep the window uncovered: a covered window stops `requestAnimationFrame`.
+The page asks for the camera (`getUserMedia` in `src/shell.html`). The Claude desktop app's built-in browser blocks it: either use a browser with a camera pointed at the printed marker, or replace `navigator.mediaDevices.getUserMedia` before the page starts with one that returns `canvas.captureStream()` of a canvas drawing `third_party/WebARKitLib/tests/data/pinball-demo.jpg` (the marker in a scene, also used by `nft_tests`) or a recorded video. Keep the window uncovered: a covered window stops `requestAnimationFrame`.
 
 Console, in order:
 - `WebGL 2 Context created and active`, then `Filament Engine created successfully!` (Filament) or `sokol_gfx initialized` (sokol).

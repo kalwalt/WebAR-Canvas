@@ -9,12 +9,40 @@
 // every edit).
 'use strict';
 
+const path = require('path');
+
 const BLOCKED = ['third_party/filament', 'third_party/webarkitlib'];
 
-function blockedFolder(filePath) {
-  // Windows paths ignore case; compare with forward slashes, on whole folder names.
-  const normalized = '/' + String(filePath).replace(/\\/g, '/').toLowerCase() + '/';
-  return BLOCKED.find((folder) => normalized.includes('/' + folder + '/'));
+// Forward slashes, "." and ".." resolved, lower case (Windows paths ignore case), and a Git Bash
+// drive (/d/...) spelled as a Windows one (d:/...), so both spellings of a folder compare equal.
+function canonical(p) {
+  let s = String(p).replace(/\\/g, '/');
+  const drive = s.match(/^\/([a-zA-Z])\//);
+  if (drive) s = drive[1] + ':/' + s.slice(3);
+  return path.posix.normalize(s).toLowerCase().replace(/\/+$/, '');
+}
+
+function isAbsolute(p) {
+  return p.startsWith('/') || /^[a-z]:\//.test(p);
+}
+
+function blockedFolder(filePath, projectDir) {
+  const file = canonical(filePath);
+  if (!projectDir) {
+    // Project folder unknown: any whole-folder match counts.
+    return BLOCKED.find((folder) => ('/' + file + '/').includes('/' + folder + '/'));
+  }
+  // Only the submodules at the root of the project count.
+  const root = canonical(projectDir);
+  let relative;
+  if (!isAbsolute(file)) {
+    relative = file;
+  } else if (file.startsWith(root + '/')) {
+    relative = file.slice(root.length + 1);
+  } else {
+    return undefined; // outside the project
+  }
+  return BLOCKED.find((folder) => (relative + '/').startsWith(folder + '/'));
 }
 
 let input = '';
@@ -29,7 +57,7 @@ process.stdin.on('end', () => {
   }
   const toolInput = (call && call.tool_input) || {};
   const filePath = toolInput.file_path || toolInput.notebook_path;
-  const folder = filePath && blockedFolder(filePath);
+  const folder = filePath && blockedFolder(filePath, process.env.CLAUDE_PROJECT_DIR);
   if (folder) {
     process.stderr.write(
       `Blocked: ${filePath} is inside the ${folder} submodule. Do not edit submodules here: ` +

@@ -18,6 +18,9 @@
       "Bash(git branch --show-current)",
       "Bash(git worktree list)",
       "Bash(git submodule status)"
+    ],
+    "deny": [
+      "Bash(git *--output*)"
     ]
   },
   "hooks": {
