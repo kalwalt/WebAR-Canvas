@@ -23,8 +23,12 @@ public:
     void windowResized(int width, int height) override;
 
 private:
+    void toggleModel(); // a tap or click switches between the cube and the glTF model
+
     utils::Entity anchorEntity; // bound to marker 0, centred on it
     utils::Entity cubeEntity;   // child of anchorEntity, spinning (owned by ARBaseApp)
+    int modelHandle = -1;       // AnimatedMorphCube.glb on marker 0 (loadModel), or an error
+    bool showModel = false;
 };
 
 #endif // WEBAR_APP_H

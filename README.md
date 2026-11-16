@@ -215,6 +215,9 @@ protected:
         const float red[4] = {1, 0, 0, 1};
         utils::Entity cube = createCube(80.0f, red);  // also createBox, createPlane, createSphere
         attachToMarker(cube, 0);
+        // glTF: a handle, or a negative ARModelError; 80 mm high on marker 0.
+        int model = loadModel("/assets/models/AnimatedMorphCube.glb");
+        if (model >= 0) placeModelOnMarker(model, 0, 80.0f);
     }
 
     void update(float deltaTime) override {

@@ -4,8 +4,10 @@
 #include "core/ARAnchor.h"
 #include "core/ARAppConfig.h"
 #include "core/ARBaseEngine.h"
+#include "core/ARModelError.h"
 #include "core/ARPrimitives.h"
 
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -14,6 +16,7 @@
 #endif
 
 class FilamentRenderer;
+class ARModelLoader;
 
 namespace filament {
 class Camera;
@@ -42,6 +45,7 @@ class VertexBuffer;
  */
 class ARBaseApp : public ARBaseEngine {
 public:
+  ARBaseApp();           // defined in ARBaseApp.cpp, where ARModelLoader is complete
   ~ARBaseApp() override; // releases the entities created with the create* helpers
 
   // Applies Module.webarConfig (if the page set one) over config, then init() and the main
@@ -53,6 +57,24 @@ public:
   // (strings), videoWidth, videoHeight (positive integers) and markers (array of strings).
   // Without Module.webarConfig nothing changes.
   static void applyPageConfig(ARAppConfig &config);
+
+  // Loads a .glb / .gltf from the Emscripten file system and adds it to the scene, at any time
+  // after init() (a page can write the file first, e.g. with Module.FS_createDataFile). Returns
+  // a handle >= 0 or an ARModelError (core/ARModelError.h). Glb loading uses Filament's gltfio.
+  int loadModel(const std::string &path);
+
+#if defined(WEBAR_RENDERER_FILAMENT)
+  // The model's root entity (invalid for an unknown handle).
+  utils::Entity getModelEntity(int handle) const;
+  // Stands the model on marker markerIndex's centre: glTF +Y up becomes the marker's +Z, and the
+  // largest extent of its bounding box becomes sizeMm. Hidden while the marker is lost.
+  bool placeModelOnMarker(int handle, int markerIndex, float sizeMm);
+  // Adds the model to the scene, or removes it.
+  void setModelVisible(int handle, bool visible);
+#endif
+
+  // The app running in this page (set by runApp()), for the functions exported to the page.
+  static ARBaseApp *current();
 
 private:
   friend struct ARInputBridge;
@@ -118,6 +140,10 @@ private:
   std::vector<OwnedMesh> ownedMeshes;
   filament::Material *vertexColorMaterial = nullptr;
   filament::MaterialInstance *vertexColorInstance = nullptr;
+#ifdef WEBAR_CANVAS_GLTF
+  std::unique_ptr<ARModelLoader> models;        // created on the first loadModel()
+#endif
+  std::vector<utils::Entity> modelAnchors;      // per model handle, from placeModelOnMarker()
   FilamentRenderer *filamentBackend = nullptr; // the object behind getRenderer()
 #endif
 };

@@ -48,6 +48,22 @@ void App::setup() {
     tcm.setParent(tcm.getInstance(cubeEntity), tcm.getInstance(anchorEntity));
 
     printf("AR 3D Cube added to scene successfully!\n");
+
+    // A glTF model on the same marker, 80 mm, hidden until a tap or click (see toggleModel).
+    modelHandle = loadModel("/assets/models/AnimatedMorphCube.glb");
+    if (modelHandle >= 0) {
+        placeModelOnMarker(modelHandle, 0, 80.0f);
+        setModelVisible(modelHandle, false);
+    } else {
+        printf("No glTF model (loadModel returned %d)\n", modelHandle);
+    }
+}
+
+void App::toggleModel() {
+    if (modelHandle < 0) return;
+    showModel = !showModel;
+    setModelVisible(modelHandle, showModel);
+    printf("showing the %s\n", showModel ? "glTF model" : "cube");
 }
 
 void App::update(float deltaTime) {
@@ -55,10 +71,12 @@ void App::update(float deltaTime) {
     auto inst = tcm.getInstance(cubeEntity);
     if (!inst.isValid() || !isTracking) return;
 
-    // Slowly spin the cube around its Z axis for dynamic AR feedback (the anchor places it).
+    // Slowly spin the cube around its Z axis for dynamic AR feedback (the anchor places it);
+    // scale it to 0 while the glTF model is shown instead.
     static float spinAngle = 0.0f;
     spinAngle += deltaTime * 1.5f;
-    tcm.setTransform(inst, math::mat4f::rotation(spinAngle, math::float3{0.0f, 0.0f, 1.0f}));
+    tcm.setTransform(inst, showModel ? math::mat4f::scaling(0.0f)
+                                     : math::mat4f::rotation(spinAngle, math::float3{0.0f, 0.0f, 1.0f}));
 
     static int trackLogCount = 0;
     if (trackLogCount++ % 60 == 0) {
@@ -77,10 +95,12 @@ void App::onMarkerLost(int markerIndex) {
 
 void App::touchDown(float x, float y, int pointerId) {
     printf("tap at (%.1f, %.1f) pointer %d\n", x, y, pointerId);
+    toggleModel();
 }
 
 void App::mouseDown(float x, float y, int button, int pointerId) {
     printf("click at (%.1f, %.1f) button %d pointer %d\n", x, y, button, pointerId);
+    toggleModel();
 }
 
 void App::windowResized(int width, int height) {
