@@ -1,0 +1,38 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node build-docker.js)",
+      "Bash(node build-docker.js *)",
+      "Bash(node --test scripts/build-docker.test.js)",
+      "Bash(node --test scripts/build-docker.test.js .claude/hooks/guard-submodules.test.js)",
+      "Bash(git status)",
+      "Bash(git status *)",
+      "Bash(git log)",
+      "Bash(git log *)",
+      "Bash(git diff)",
+      "Bash(git diff *)",
+      "Bash(git show *)",
+      "Bash(git blame *)",
+      "Bash(git rev-parse *)",
+      "Bash(git ls-files *)",
+      "Bash(git branch --show-current)",
+      "Bash(git worktree list)",
+      "Bash(git submodule status)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard-submodules.js\"",
+            "timeout": 10,
+            "statusMessage": "Checking the path against the submodules"
+          }
+        ]
+      }
+    ]
+  }
+}

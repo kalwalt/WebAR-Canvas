@@ -23,8 +23,8 @@ jobs:
         with:
           submodules: true
 
-      - name: Test the build runner's checks
-        run: node --test scripts/build-docker.test.js
+      - name: Test the build runner's checks and the Claude Code hook
+        run: node --test scripts/build-docker.test.js .claude/hooks/guard-submodules.test.js
 
       - name: Read the Filament submodule commit
         id: filament
