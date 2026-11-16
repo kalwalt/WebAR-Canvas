@@ -29,15 +29,21 @@
 - The default build (`filament`) stays byte-for-byte the same in behaviour. `node build-docker.js --test` and the CI stay green after every task.
 - Tests come first wherever there is pure logic (`core_tests`).
 - The `sokol` build must work with **no Filament submodule checked out and no host tools**. CI proves it with a job that does not check Filament out.
+- **Order of work:** the whole sokol side comes first, because it needs no Filament host tools. Each task ends with `node build-docker.js --renderer sokol --test` (the Node runners do not use a renderer). The Filament build (with the ~13 min `uberz` host-tool build in this fresh worktree) runs once, in Task 4, before the comparison. There it is checked for compile errors in the shared changes, `--test`, and the browser behaviour of stage 5. Until then, the Filament-side edits (`FilamentRenderer` mesh API, `ARVideoTexture`) are compiled only by that build.
 - Conventional Commits, `For #13` in bodies.
 
-## Decisions (to approve)
+## Decisions (approved by the maintainer on 2026-11-16, with the changes noted)
 
-- **F1 — sokol as a pinned submodule.** Add `third_party/sokol` as a git submodule at commit `93aa187` (2026-11-10, zlib license, about 18 MB). Only `sokol_gfx.h` and `sokol_log.h` are used, with `SOKOL_IMPL` in one `.cpp`.
-  - Alternative: copy the two headers into `third_party/sokol/`. That is smaller, but updates become manual and the provenance is less clear.
-  - The README license list gets sokol (zlib).
+- **F1 — sokol as two vendored headers (changed: not a submodule).**
+  - `third_party/sokol/` holds `sokol_gfx.h` and `sokol_log.h`, copied unmodified from floooh/sokol commit `93aa187` (2026-11-10), plus a `README.md` recording the upstream repository, the commit, the dates, the zlib/libpng license (its full text is inside the headers) and how to update.
+  - Reason (maintainer): sokol has no version release tags, so a submodule would pin a hand-picked commit and track nothing stable. The two headers are about 1.4 MB, against an 11–18 MB submodule. The point of #13 is a lighter build, and a sokol path that needs no submodule init at all makes the "builds without Filament" CI job trivial.
+  - The headers were obtained with `git clone --depth 1` into a temporary folder outside the repository (no curl or wget).
+  - AGENTS.md gets a short note on updating them: the same clone-and-copy, with the commit recorded.
+  - `SOKOL_IMPL` and `SOKOL_GLES3` are defined in one `.cpp`.
+  - The README license list gets sokol (zlib/libpng).
 
-- **F2 — a backend-neutral mesh API, used by the demo.** This is beyond the stage text. It adds a **second public API** next to the one merged in #18 (`addBox` returning an id, beside `createBox` returning a Filament `Entity`). The issue's sketch has only `setPose(id, …)`. If approved:
+- **F2 — a backend-neutral mesh API, used by the demo (approved, with a scope limit).** It adds a **second public API** next to the one merged in #18 (`addBox` returning an id, beside `createBox` returning a Filament `Entity`). The issue's sketch has only `setPose(id, …)`.
+  - **Scope limit:** the mesh API covers only what the demo needs: vertex-coloured, unlit meshes from `ARPrimitives.h`, a transform, visibility. Materials, textures, lighting and anything beyond vertex colours are deferred (see "Not in this stage"), so the stage stays inside #13's acceptance criteria.
   - The README and `docs/template.md` lead with the neutral API.
   - The Entity API stays, as the Filament-only path (glTF, parenting, Filament materials).
   - **On `IARRenderer`:**
@@ -54,7 +60,13 @@
     - `setMeshVisible(id, bool)`.
   - **The demo** (`App.cpp`) uses only this API for the cube, so it is the same source on both backends. The glTF click switch stays, behind `#ifdef WEBAR_CANVAS_GLTF` (Filament only). With sokol, a click only prints.
   - **The Filament-only API from stage 5 is unchanged** (`createBox` etc. returning `utils::Entity`, `attachToMarker(Entity)`, `loadModel`, `getEngine/getScene/getCamera`). With sokol, `loadModel` returns `UNSUPPORTED` (-3), as `ARModelError.h` already defines.
-  - With sokol, `webar_load_model` / `webar_place_model` stay defined and exported, returning -3 / 0. The link options do not change per backend.
+  - With sokol, `webar_load_model` / `webar_place_model` stay defined and exported. The link options do not change per backend. Return values on sokol, documented in one table in the README and `docs/template.md`:
+
+    | Call (sokol build) | Returns |
+    |---|---|
+    | `loadModel(path)` | -3 (`UNSUPPORTED`) |
+    | `webar_load_model(path)` | -3 (`UNSUPPORTED`) |
+    | `webar_place_model(handle, marker, sizeMm)` | 0 (failure) |
   - Alternative: keep `App.cpp` Filament-only and add a separate sokol demo. That means less change to `ARBaseApp`, but two demos to keep in step, and template users would have no portable API.
 
 - **F3 — CMake.**
@@ -65,32 +77,51 @@
     - `WEBAR_CANVAS_GLTF` forced OFF, with a message;
     - sources `SokolRenderer.cpp` and `sokol_impl.cpp`;
     - definition `WEBAR_RENDERER_SOKOL=1`;
-    - include `third_party/sokol`.
+    - include `third_party/sokol` (no submodule).
   - **With `filament`:** exactly the current setup.
   - The output keeps the name `videoTest.html/.js/.wasm`.
   - The Filament-only parts move into one `if(WEBAR_RENDERER STREQUAL "filament")` block.
 
 - **F4 — build runner and scripts.**
   - `node build-docker.js --renderer sokol` (default `filament`) builds into `build-wasm-sokol/`, so the two builds never share a CMake cache.
-  - It skips `scripts/build-host-tools.sh` and the Filament submodule check, and checks for `third_party/sokol` instead.
+  - It skips `scripts/build-host-tools.sh` and the Filament submodule check. It still checks for WebARKitLib, and that the vendored `third_party/sokol/sokol_gfx.h` exists.
   - `scripts/build-wasm.sh` reads `WEBAR_RENDERER` and `BUILD_DIR` from the environment, with the defaults that keep the CI and Pages unchanged.
   - `--test` runs the Node runners. They do not use a renderer, so they run the same with either backend.
   - Tests for the new runner flags go in `scripts/build-docker.test.js`.
 
 - **F5 — CI.**
-  - `build.yml` gets a second job, "WebAssembly build (sokol)". It checks out only `third_party/WebARKitLib` and `third_party/sokol` (`submodules: false`, then `git submodule update --init` for those two). It does not build host tools, and it runs the build and the Node tests.
+  - `build.yml` gets a second job, "WebAssembly build (sokol)". It checks out only `third_party/WebARKitLib` (`submodules: false`, then `git submodule update --init third_party/WebARKitLib`); sokol is vendored in the repository. It does not build host tools, and it runs the build and the Node tests.
   - The Filament job is unchanged.
   - Pages keeps deploying the Filament build.
 
-- **F6 — the video texture in sokol.** The sokol details below (`gl_textures` injection, `sg_reset_state_cache`, the `sg_swapchain` fields) are from memory and are **to confirm at the pinned commit**; reading the pinned header is the first step of Task 1. Fallback: let sokol create the image and pass its GL id (`sg_gl_query_image_info`) to the JS upload.
-  - The same path as Filament: a GL texture created with `glGenTextures`, filled each camera frame by the existing `update_webgl_texture` JS (`texImage2D` from `<video id="ar-video">`), and given to sokol as an injected image (`sg_image_desc.gl_textures[0]`).
+- **F6 — the video texture in sokol.** Checked against the vendored `sokol_gfx.h` (commit `93aa187`). Corrections to what the first draft assumed:
+  1. **Injection field:** it is `sg_image_desc.gl_texture` (a single `uint32_t`, plus an optional `gl_texture_target`), not `gl_textures[0]`. An injected image must not get `.data` (`VALIDATE_IMAGEDESC_INJECTED_EXPECT_NO_DATA`) and cannot have `write_transient` usage.
+  2. **Texture views:** an image is not bound directly. Since the `sg_view` change, a shader samples a **view**: `sg_make_view(&(sg_view_desc){ .texture.image = img })`, bound through `sg_bindings.views[]` (not `images[]`). The shader declares it in `sg_shader_desc.views[n].texture` (stage, image type, sample type). It is paired with a sampler in `texture_sampler_pairs[]` (`view_slot`, `sampler_slot`, `glsl_name`).
+  3. **GLSL names:** on WebGL 2, `glsl_name` is required for each uniform in `uniform_blocks[].glsl_uniforms[]` and for each texture-sampler pair. Vertex attributes can be named with `attrs[].glsl_name`. Shader code goes in `vertex_func.source` / `fragment_func.source` (not `vs` / `fs`).
+  4. **Confirmed as assumed:**
+     - `sg_reset_state_cache()` exists; the header says to call it after native 3D-API calls, before the next sokol call.
+     - `sg_swapchain` has `width`, `height`, `sample_count`, `color_format`, `depth_format` and `gl.framebuffer` (0 = the default framebuffer). It is passed in `sg_pass.swapchain` to `sg_begin_pass`.
+     - `sg_desc.environment.defaults` holds the default colour, depth and sample count.
+     - `sg_gl_query_image_info` exists, as the fallback.
+  - **The path**, the same as Filament: a GL texture created with `glGenTextures`, filled each camera frame by the existing `update_webgl_texture` JS (`texImage2D` from `<video id="ar-video">`, which replaces the storage of the same texture object), and given to sokol as an injected image (`gl_texture`), then a texture view.
   - The EM_JS helper moves from `FilamentRenderer.cpp` to a shared `src/core/ARVideoTexture.{h,cpp}`.
-  - After the JS upload, `sg_reset_state_cache()` runs, because the upload changes GL bindings behind sokol's back.
-  - The WebGL context is created as in `FilamentRenderer` (`emscripten_webgl_create_context`, WebGL 2, depth). sokol renders to the default framebuffer (`sg_swapchain` with `gl.framebuffer = 0`).
+  - After the JS upload, `sg_reset_state_cache()` runs, because the upload binds and unbinds the texture behind sokol's back.
+  - The WebGL context is created as in `FilamentRenderer` (`emscripten_webgl_create_context`, WebGL 2, depth, no antialias). sokol renders to the default framebuffer (`gl.framebuffer = 0`).
 
 - **F7 — alignment and the comparison.**
   - **Projection:** both backends use the same projection and pose matrices (`getCameraLens()`, anchor output). Sokol draws `projection * model` directly in GL clip space.
-  - **Alignment check:** a temporary, uncommitted build of each backend. The spin is off and the video is paused at a fixed time, so both frames are deterministic. Then compare the cube's corner pixels, which should be within ~1 px. The spin uses wall-clock time and the pose varies slightly between runs, so free-running screenshots cannot be compared. Both screenshots go in the PR.
+  - **Alignment check:** a temporary, uncommitted build of each backend, with the spin off and the video paused at a fixed time, so both frames are deterministic. The spin uses wall-clock time and the pose varies slightly between runs, so free-running screenshots cannot be compared. Both screenshots go in the PR.
+    - **Why a screenshot comparison is fair:** the cube material is `shadingModel: unlit` with vertex colours, and the Filament view has post-processing disabled (checked by the maintainer). So both backends write the vertex colour straight to the framebuffer.
+    - **Not exact pixel equality.** Rasterization rules, float vs double matrix precision, MSAA settings and the swapchain colour space can still differ.
+    - **Tolerance:**
+      - **Geometry:** each edge of the cube's screen-space bounding box (the pixels that match a face colour) within **2 px** of the other backend's.
+      - **Colour:** each face's mean colour within **8/255** per channel.
+    - **How it was chosen:**
+      - 1 px allows for a different rounding of the same edge when the two rasterizers sample pixel centres.
+      - A second px allows for the projection being built in double (Filament's `setCustomProjection`) vs float (sokol's uniform), which can move an edge by a fraction of a pixel near the cube's far corners.
+      - 8/255 allows for a colour-space or dithering difference without hiding a wrong face colour (the face colours differ by at least 0.6 in a channel).
+    - **Noise floor:** before comparing, each backend is captured twice under the same conditions. If either backend differs from itself by more than the tolerance, the tolerance is not met by construction, and the PR reports the measured noise instead.
+    - The tolerance and the measured differences go in the PR.
   - **Size:** `videoTest.wasm`, `.js` and the total download (gzip too) for both builds, from the same commit.
   - **FPS and frame time:** 6 runs per backend, alternating, with the harness's profile mode. Both backends will probably sit at the display rate, so the comparison leads with the `render` column (ms per tick) and long frames, then mean FPS.
   - **Harness:** `bench.html` parses lines the Filament path prints (`Rendered frame`, `WebGL Error`, `AR 3D Cube added`, `Pose Translation`). Before measuring, check which of them drive the "not rendering" discard and the GL error count, and make `SokolRenderer` print the same lines.
@@ -105,7 +136,7 @@
 
 ## File Structure
 
-- `third_party/sokol` (submodule, new).
+- `third_party/sokol/` (new): `sokol_gfx.h`, `sokol_log.h` (vendored, F1), `README.md`.
 - `src/core/IARRenderer.h`: the mesh API (F2).
 - `src/core/ARVideoTexture.{h,cpp}` (new): the shared `update_webgl_texture` JS and the GL texture creation (F6).
 - `src/core/FilamentRenderer.{h,cpp}`: the mesh API, and the video texture moved to the shared helper.
@@ -118,20 +149,21 @@
 
 ### Task 1: The renderer switch and an empty sokol backend
 
-- [ ] Add the `third_party/sokol` submodule at the pinned commit, then read the pinned `sokol_gfx.h` for the F6 details.
-- [ ] `build-docker.test.js`: tests for `--renderer sokol` (build dir, no host tools, the sokol submodule check, unknown renderer rejected); see them fail.
+- [x] Vendor `sokol_gfx.h` and `sokol_log.h` with their README (F1), and read the header for the F6 details (corrections recorded in F6).
+- [ ] `build-docker.test.js`: tests for `--renderer sokol` (build dir, no host tools, no Filament check, the vendored sokol check, unknown renderer rejected); see them fail.
 - [ ] `build-docker.js`, `build-wasm.sh`, `test-wasm.sh`: the renderer flag and env (F4).
 - [ ] `CMakeLists.txt`: the `WEBAR_RENDERER` switch (F3).
 - [ ] `SokolRenderer`, minimal: context, `sg_setup`, clear to black, `render()`. `ARBaseApp::createRenderer()` per backend. With sokol, `App.cpp`'s Filament code is behind `WEBAR_RENDERER_FILAMENT` for now.
-- [ ] Both builds green (`--test` on each). In the browser, sokol shows a black canvas, tracking runs (the log shows "found"), and there are no GL errors.
+- [ ] `node build-docker.js --renderer sokol --test` green. In the browser, sokol shows a black canvas, tracking runs (the log shows "found"), and there are no GL errors.
 - [ ] CI: the sokol job (F5).
 - [ ] Commit: `build: add the WEBAR_RENDERER switch and a sokol backend skeleton`.
 
 ### Task 2: The video background in sokol
 
-- [ ] Move the EM_JS upload and the GL texture creation to `ARVideoTexture` (F6). Filament uses it with no change in behaviour (browser check: same video as before).
-- [ ] `SokolRenderer`: the video quad pipeline (GLSL ES 3.00), the injected image, `sg_reset_state_cache()` after the upload.
-- [ ] Browser check, sokol: the video plays, with the same orientation as Filament (screenshot at the same timestamp).
+- [ ] Move the EM_JS upload and the GL texture creation to `ARVideoTexture` (F6). Filament uses it with no change in behaviour (checked in Task 4, when Filament is built).
+- [ ] `SokolRenderer`: the video quad pipeline (GLSL ES 3.00), the injected image (`gl_texture`) and its texture view, `sg_reset_state_cache()` after the upload.
+- [ ] `node build-docker.js --renderer sokol --test` green.
+- [ ] Browser check, sokol: the video plays, the right way up (the Filament comparison is in Task 4).
 - [ ] Commit: `feat(render): draw the camera video in the sokol backend`.
 
 ### Task 3: The neutral mesh API and the cube on both backends
@@ -140,20 +172,21 @@
 - [ ] `IARRenderer` mesh methods. `FilamentRenderer` implements them with entities and `ar_cube.mat`. `SokolRenderer` implements them with a vertex-colour pipeline, depth test and `projection × model` (F2).
 - [ ] `ARBaseApp`: `addBox/addCube/addPlane/addSphere`, `attachMeshToMarker`, `setMeshLocalTransform`, `setMeshVisible`.
 - [ ] `App.cpp`: the cube through the neutral API; glTF behind `WEBAR_CANVAS_GLTF`.
-- [ ] Browser checks:
-  - Filament: the cube and the glTF click switch behave as before.
-  - sokol: the cube sits on the marker and spins.
-  - Alignment within ~1 px at the same timestamp (F7).
+- [ ] `node build-docker.js --renderer sokol --test` green.
+- [ ] Browser check, sokol: the cube sits on the marker and spins; a click prints. (Filament and the alignment are checked in Task 4.)
 - [ ] Commit: `feat(render): a backend-neutral mesh API and the demo cube on sokol`.
 
-### Task 4: Comparison, docs, review, PR
+### Task 4: Filament build, comparison, docs, review, PR
 
+- [ ] The Filament build in this worktree (host tools once, including `uberz`), then `node build-docker.js --test` green.
+- [ ] Browser checks, Filament: the video, the cube on the marker, the glTF click switch and the stage 5 page calls behave as before.
+- [ ] The alignment check with its tolerance (F7).
 - [ ] Size and FPS comparison (F7). Raw results go in `D:/kalwalt-github/WebAR-Canvas-runs/stage6/`.
 - [ ] Docs:
-  - README: the renderer option, the license list, sizes;
-  - AGENTS.md: the architecture, the switch and the pitfalls;
+  - README: the renderer option, the license list, sizes, the sokol return-value table;
+  - AGENTS.md: the architecture, the switch, the pitfalls, how to update the vendored sokol headers;
   - CLAUDE.md / GEMINI.md: one line each;
-  - `docs/template.md`: the portable API vs the Filament-only API.
+  - `docs/template.md`: the portable API first, then the Filament-only API, and the sokol return-value table.
 - [ ] A final read-only review on `origin/dev...HEAD`; fix the findings.
 - [ ] Push, then the PR to `dev`: "For #13", the comparison table, screenshots, and what is not covered.
 
@@ -166,4 +199,5 @@ The CMake option, the renderer and the mesh API are sequential: each task builds
 - WebGPU (#13 step 4), sokol's WebGPU backend, `emdawnwebgpu`.
 - glTF on sokol (a loader such as cgltf would be a follow-up issue).
 - Lighting in sokol: the cube is unlit, as on Filament.
+- Beyond the demo's needs in the neutral mesh API (F2 scope limit): materials, textures, lighting, anything beyond vertex colours, parenting between meshes.
 - Pages deploying the sokol build.
