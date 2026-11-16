@@ -1,14 +1,14 @@
 # AGENTS.md
 
-Guidance and instructions for AI coding agents (Antigravity, Claude, Copilot) working in **WebAR-Canvas (`Wasm_AR_Engine`)**.
-This is the canonical instructions file; `CLAUDE.md`, `GEMINI.md`, and `.github/copilot-instructions.md` point here.
+Guidance and instructions for AI coding agents (Antigravity, Claude, Copilot, Gemini) working in **WebAR-Canvas**.
+This is the canonical instructions file: new guidance and corrections go here. `CLAUDE.md` keeps only Claude Code's day-to-day fast path; `GEMINI.md`, `.agent/instructions.md` and `.github/copilot-instructions.md` are short pointers to this file. Do not copy sections into them.
 
 ---
 
 ## 1. Project Overview
 
 **WebAR-Canvas** is a high-performance, "C++ first" Augmented Reality framework for the Web. It integrates:
-1. **Google Filament**: Physically Based Rendering (PBR) engine running on WebGL 2, managing the canvas, camera, scene graph, and video stream background quad.
+1. **A renderer behind `IARRenderer`**: Google Filament by default (Physically Based Rendering on WebGL 2: camera, scene graph, glTF, the video background quad), or the light `sokol_gfx` backend (`--renderer sokol`; section 2B).
 2. **WebARKitLib / jsartoolkitNFT Core**: Natural Feature Tracking (NFT) computer vision library (AR, AR2, KPM / FreakMatcher) compiled directly to WebAssembly with Emscripten.
 
 The entire application lifecycle, computer vision tracking, camera projection calculation, and 3D rendering loop are managed directly in **native C++**, eliminating JavaScript-to-WASM bridge overhead during frame rendering.
@@ -29,6 +29,7 @@ The entire application lifecycle, computer vision tracking, camera projection ca
 - Both draw the camera video from the same WebGL texture (`src/core/ARVideoTexture.*`: created once, filled from `<video id="ar-video">` with `texImage2D` on every camera frame, imported by each backend).
 - The backend-neutral mesh API (`IARRenderer::addMesh / setMeshTransform / setMeshVisible / removeMesh`; for apps `ARBaseApp::addBox / addCube / addPlane / addSphere`, `attachMeshToMarker`, `setMeshLocalTransform`, `setMeshVisible`, `removeMesh`) covers only unlit, vertex-coloured meshes: what the demo needs. Materials, textures and lighting are deliberately not in it. `ARMeshAnchors` (`src/core/ARMeshAnchors.h`, pure, tested in `core_tests`) binds mesh ids to markers and gives each mesh `anchored * local` (all zeros while lost), reading poses once per camera frame. The demo (`src/app/App.cpp`) uses only this API for the cube, so it is one source for both backends.
 - Keep Filament (and sokol) types out of `ARBaseEngine`; renderer-specific code goes in the renderer, and Filament-only app API behind `WEBAR_RENDERER_FILAMENT`.
+- Destruction order: `~App` and `~ARBaseApp` run before `~ARBaseEngine` releases the renderer, so the app releases its own entities, glTF assets and anchors first. In `FilamentRenderer`, meshes are destroyed before the vertex-colour material they share, and the engine last. In `SokolRenderer`, `sg_shutdown()` releases every sokol resource, then the injected video texture is deleted with `glDeleteTextures` (sokol never deletes injected textures).
 - sokol pitfalls (vendored commit, see `third_party/sokol/README.md`):
   - Raw GL calls (the video upload, `createVideoTexture`) change GL state behind sokol's back: call `sg_reset_state_cache()` after them, before the next sokol call.
   - An injected texture (`sg_image_desc.gl_texture`) keeps its own mip range, but sokol's GL samplers always use a mipmap min filter: set `GL_TEXTURE_MAX_LEVEL` to 0 on a one-level injected texture, or it is incomplete and samples black (no error, not even with `SOKOL_DEBUG`).
@@ -50,52 +51,62 @@ The entire application lifecycle, computer vision tracking, camera projection ca
 - `getEngine()` / `getScene()` / `getCamera()` return Filament objects and exist only with `WEBAR_RENDERER_FILAMENT` (set by `CMakeLists.txt`); an app that uses them is a Filament app. `ARBaseEngine` itself depends only on `IARRenderer`: the backend is created by `ARBaseApp::createRenderer()`.
 
 ### D. Dual Video Pipeline
-- **GPU Path (Rendering)**: The HTML `<video>` stream is uploaded directly to a WebGL texture via `update_webgl_texture` in `FilamentRenderer.cpp` and rendered as a background quad using an unlit Filament material (`video_background.fil`).
-- **CPU Path (Tracking)**: Frames are ingested into CPU memory (`videoFrame` RGBA and `videoLuma` grayscale luminance) for KPM feature matching and AR2 template tracking.
+- **GPU Path (Rendering)**: on each camera frame, `update_webgl_texture` (`src/core/ARVideoTexture.cpp`) copies the `<video>` frame into one WebGL texture shared by both backends. Filament draws it on a background quad with `materials/video_background.mat`; sokol with its own GLSL ES 3.00 shader (`SokolRenderer.cpp`).
+- **CPU Path (Tracking)**: frames are copied into `ARNFTTracker`'s RGBA buffer (`getVideoFrame()`), converted to luma by `webarkitVideoLuma` into `lumaInfo` (`getVideoLuma()`) and used for KPM feature matching and AR2 template tracking; both buffers are released in `ARNFTTracker::teardown()`.
 - **Frame pacing**: both paths run once per new camera frame (`requestVideoFrameCallback`, in `ARBaseEngine::updateVideoFrame()`), not once per display frame; `update()`, `draw()` and the render run every display frame. Without `requestVideoFrameCallback`, or when it has not fired for 250 ms while the video plays, every tick processes the frame.
 - **KPM on the main thread**: while no marker is tracked, `ARToolKitNFTCore` runs KPM detection on every frame. The 200 ms detection interval only limits re-detection while some markers are tracked and others are not; with a single marker, KPM stops once it is tracked. A KPM pass takes tens of milliseconds, so searching is the slowest state of the app (#4).
 
 ### E. Camera Projection & Coordinate Alignment
 - ARToolKit intrinsic parameters (`camera_para.dat`) are loaded using `arParamLoad()` and resized with `arParamChangeSize()`.
 - `arglCameraFrustumRH()` calculates an OpenGL right-handed column-major projection matrix (`cameraLens[16]`).
-- This matrix is passed directly to Filament's camera via:
-  ```cpp
-  camera->setCustomProjection(customProj, nearPlane, farPlane);
-  ```
-- Marker poses (`trans[3][4]`) are converted into Filament's column-major 4x4 transform matrices to position 3D entities in the scene.
+- This matrix goes to `IARRenderer::setProjection()`: `FilamentRenderer` calls `camera->setCustomProjection(...)`, `SokolRenderer` keeps it as the projection uniform (`projection * transform` per mesh).
+- Marker poses (`trans[3][4]`) become column-major 4x4 model-view matrices (`getMarkerPose()`), which `ARAnchor` / `ARMeshAnchors` turn into object transforms.
 
 ---
 
 ## 3. Directory Layout
 
 ```
-Wasm_AR_Engine/
+WebAR-Canvas/
 ├── assets/                  # Embedded assets (camera_para.dat, pinball.fset, pinball.fset3, pinball.iset)
-├── materials/               # Source shaders (.mat) compiled to .fil with matc
+├── materials/               # Filament source materials (.mat), compiled to .fil with matc (Filament only)
 ├── src/
 │   ├── core/                # Framework core
-│   │   ├── ARBaseApp.h/.cpp        # The app base class, AR_APP_MAIN, Module.webarConfig
+│   │   ├── ARBaseApp.h/.cpp        # The app base class, AR_APP_MAIN, Module.webarConfig, mesh API
 │   │   ├── ARAppConfig.h           # ARAppConfig: what an app needs to start
 │   │   ├── AREvents.h              # Marker found/lost event tracking
+│   │   ├── ARAnchor.h              # Marker pose -> object matrix, centred, optional smoothing (pure, tested)
+│   │   ├── ARInput.h/.cpp          # Touch / mouse / resize -> app hooks; clientToCanvas (pure, tested)
+│   │   ├── ARPrimitives.h          # Box / plane / sphere geometry (pure, tested)
+│   │   ├── ARMeshAnchors.h         # Mesh ids bound to markers (pure, tested)
+│   │   ├── ARModel.h/.cpp          # glTF loading with gltfio (Filament, WEBAR_CANVAS_GLTF)
+│   │   ├── ARModelError.h          # loadModel error codes
 │   │   ├── ARBaseEngine.h/.cpp     # Main loop, CPU video path, NFT tracker, profiling probe
 │   │   ├── IARRenderer.h           # Rendering backend interface (video, projection, meshes)
-│   │   ├── ARMeshAnchors.h         # Mesh ids bound to markers (pure, tested)
 │   │   ├── ARVideoTexture.h/.cpp   # The camera video texture, shared by both backends
 │   │   ├── FilamentRenderer.h/.cpp # Filament backend: WebGL 2 context, scene, video background
-│   │   └── SokolRenderer.h/.cpp    # sokol_gfx backend (WEBAR_RENDERER=sokol); sokol_impl.cpp
+│   │   ├── SokolRenderer.h/.cpp    # sokol_gfx backend (WEBAR_RENDERER=sokol)
+│   │   └── sokol_impl.cpp          # SOKOL_IMPL: the sokol implementation, compiled once
 │   ├── app/                 # The application (user code)
-│   │   ├── App.h            # class App : public ARBaseApp (the demo: a cube on the marker)
-│   │   └── App.cpp          # App's hooks: setup(), update(), marker events
+│   │   ├── App.h            # class App : public ARBaseApp (the demo: a cube on the marker; with Filament, a click switches to a glTF model)
+│   │   └── App.cpp          # App's hooks: setup(), update(), marker events, input
 │   ├── main.cpp             # Entry point: AR_APP_MAIN(App, 640, 480, "/assets/markers/pinball")
 │   ├── shell.html           # Emscripten HTML shell template
+│   ├── WebARCanvasVersion.h.in  # Version header template (project(VERSION) in CMakeLists.txt)
 │   └── nft/                 # Native C++ NFT tracking subsystem
 │       ├── ARNFTTracker.h   # C++ NFT tracker interface
 │       └── ARNFTTracker.cpp # Adapter over WebARKitLib's ARToolKitNFTCore (RGBA frame + luma here, tracking in the core)
+├── tests/                   # Node runners: nft_tests.cpp (ARNFTTracker), core_tests.cpp (pure src/core)
+├── scripts/                 # build-host-tools.sh, build-wasm.sh, test-wasm.sh (run in the container), build-docker.test.js
+├── docs/                    # template.md (using the repository as a template), superpowers/plans/ (stage plans)
 ├── third_party/
 │   ├── filament/            # Google Filament submodule (Filament renderer only)
 │   ├── sokol/               # sokol_gfx.h, sokol_log.h: vendored, not a submodule (README inside)
 │   └── WebARKitLib/         # WebARKitLib submodule (AR, AR2, ARICP, ARUtil, KPM, WebARKitNFT: ARToolKitNFTCore, trackingMod, markerDecompress, NFTMarkerState)
-├── build-wasm/              # Build directory containing compiled WASM, JS, and HTML
+├── .github/workflows/       # build.yml (CI: wasm, wasm-sokol), pages.yml (GitHub Pages)
+├── .claude/                 # Claude Code: settings.json, agents/, skills/, hooks/ (section 7)
+├── build-wasm/              # Build output, Filament (videoTest.html/.js/.wasm); not committed
+├── build-wasm-sokol/        # Build output, sokol; not committed
 ├── build-docker.js          # Cross-platform Node.js build runner for Docker (Windows & Linux)
 ├── CMakeLists.txt           # Main CMake project build definition
 └── README.md                # Project documentation
@@ -118,13 +129,21 @@ node build-docker.js -j 8
 # Clean rebuild
 node build-docker.js --clean
 
-# Build, then run the ARNFTTracker tests with Node
+# Build, then run the Node test runners (nft_tests, core_tests)
 node build-docker.js --test
+
+# The sokol renderer: no Filament submodule, no host tools; the fastest way to run the tests
+node build-docker.js --renderer sokol --test
+
+# Print the container commands after the checks, without starting Docker
+node build-docker.js --renderer sokol --dry-run
 ```
+
+Build times on the maintainer's machine: the first Filament build in a checkout takes ~15–30 min (the host tools; `uberz` alone ~13 min), later ones ~3–10 min; a sokol build ~3 min. Run long builds in the background, and never run two builds on the same build folder (they share its CMake cache). The Node runners use no renderer, so `--renderer sokol --test` checks a change to `src/core/` or `src/nft/` in ~3 min.
 
 `build-docker.js` runs these scripts inside the container, the same ones the CI runs (`.github/workflows/build.yml`):
 - `scripts/build-host-tools.sh`: builds the Filament host tools (`matc`, `resgen`, `cmgen`, `glslminifier`, and `uberz` for the ubershader archive that glTF loading needs) in `third_party/filament/out/host` with emsdk's clang, once; it builds only the missing ones. When the list changes, bump the `-vN` suffix of the CI cache key in `.github/workflows/build.yml` (and `pages.yml`).
-- `scripts/build-wasm.sh [jobs] [target]`: configures and builds a target (`WebAR-Canvas` by default). Environment: `WEBAR_RENDERER` (`filament` or `sokol`, default `filament`) and `BUILD_DIR` (default `build-wasm/`). With sokol, `build-docker.js` sets `BUILD_DIR=build-wasm-sokol` and skips `build-host-tools.sh`; `--dry-run` prints the container commands without starting Docker.
+- `scripts/build-wasm.sh [jobs] [target]`: configures and builds a target (`WebAR-Canvas` by default). Environment: `WEBAR_RENDERER` (`filament` or `sokol`, default `filament`) and `BUILD_DIR` (relative to the repository; default `build-wasm/`, or `build-wasm-<renderer>/` for another renderer). With sokol, `build-docker.js` skips `build-host-tools.sh`; `--dry-run` prints the container commands without starting Docker.
 - `scripts/test-wasm.sh` (with `--test`): builds and runs two Node runners, with no browser or webcam; the exit code is the total number of failed checks.
   - `nft_tests` (`tests/nft_tests.cpp`) drives `ARNFTTracker` on WebARKitLib's fixtures (`tests/data`, embedded at `/data`, including `pinball-demo.jpg`).
   - `core_tests` (`tests/core_tests.cpp`) tests the pure C++ parts of `src/core/` (no renderer, no tracker), such as `MarkerEventTracker` and `ARMeshAnchors`.
@@ -132,22 +151,25 @@ node build-docker.js --test
 
 The Emscripten cache lives in the `webar-canvas-emcache-4.0.17` Docker volume, so the libjpeg and zlib ports are downloaded once.
 
+CI (`.github/workflows/build.yml`) runs on pushes and pull requests to `dev` and `master` (and by hand): the `wasm` job (Filament, host tools cached under the key `filament-host-tools-<filament sha>-emsdk-4.0.17-v2`) and the `wasm-sokol` job, which checks out only WebARKitLib. Both run the Node runners; the runner tests (`node --test scripts/build-docker.test.js .claude/hooks/guard-submodules.test.js`) run first.
+
 GitHub Pages: `.github/workflows/pages.yml` builds the app with the same scripts and deploys it, on the default branch only. The repository is a GitHub template; `docs/template.md` explains how to start a project from it and the Pages settings.
 
 Keep `*.sh` files with LF line endings (`.gitattributes`): they run in Linux containers.
 
-Before starting Docker, `build-docker.js` stops with a clear message when a submodule is not checked out (`third_party/filament`, `third_party/WebARKitLib`) or the Docker daemon does not answer. Its tests: `node --test scripts/build-docker.test.js` (no Docker needed; also run in CI).
+Before starting Docker, `build-docker.js` stops with a clear message when a submodule it needs is not checked out (`third_party/WebARKitLib`; also `third_party/filament` for Filament), the vendored sokol headers are missing (sokol), the renderer is unknown, or the Docker daemon does not answer. Its tests: `node --test scripts/build-docker.test.js` (no Docker needed; also run in CI).
 
 #### Filament host tools: pitfalls
 - **Same container, same glibc**: the tools must run in `emscripten/emsdk:4.0.17` (Ubuntu 22.04, glibc 2.35). Tools built on a newer distribution fail with `GLIBC_2.38' not found`; `scripts/build-host-tools.sh` builds them in that image with emsdk's clang and `-DUSE_STATIC_LIBCXX=OFF`.
 - **Absolute paths**: `third_party/filament/ImportExecutables-Release.cmake` records the tools' absolute paths, so the WASM build must see the repository at the same path (`/src` in `build-docker.js`, the workspace in CI).
 - **Do not set `FILAMENT_LINUX_IS_MOBILE=ON`** for the host build: Filament then skips the tools (`export given target "matc" which is not built by this project`).
+- **Worktrees**: a git worktree needs its own submodule checkout. Use `git -c core.autocrlf=false submodule update --init --reference <main checkout>/third_party/<sub> -- third_party/<sub>`, then `git -C third_party/filament config core.autocrlf false`. The built host tools (`third_party/filament/out/host/tools/{matc,resgen,cmgen,glslminifier,uberz}/<tool>`) can be copied from another checkout of the same Filament commit: their import file refers to `/src/...`, not to the host path; `scripts/build-host-tools.sh` then builds only the missing ones and writes a fresh import file.
 - **Windows line endings**: with `core.autocrlf=true`, Filament's shell scripts get CRLF (`/usr/bin/env: 'bash\r'`). Check out the Filament submodule with `core.autocrlf=false` in the submodule's own config (README, "Prerequisites & Setup"); never change the global setting. The root `.gitattributes` does not apply inside submodules.
 
 ### Key CMake & Linker Requirements
 - **Web Ports**: Emscripten port dependencies `-sUSE_ZLIB=1` and `-sUSE_LIBJPEG=1` must be provided in both compile and link options.
 - **Embedded Files**: In `CMakeLists.txt`, always format `--embed-file` with an equal sign (`--embed-file=<src>@<dst>`) to prevent CMake from splitting the flag and its destination path during linking.
-- **Exported Runtime Methods**: Any method accessed from JavaScript must be explicitly listed in `EXPORTED_RUNTIME_METHODS` (e.g. `'GL'`, `'UTF8ToString'`).
+- **Exports**: a C function called from JavaScript (`Module.ccall`) must be `EMSCRIPTEN_KEEPALIVE` and listed in `EXPORTED_FUNCTIONS` (e.g. `'_webar_load_model'`); a runtime method used from JavaScript must be listed in `EXPORTED_RUNTIME_METHODS` (e.g. `'GL'`, `'UTF8ToString'`, `'ccall'`, `'FS_createDataFile'`). Both lists are in `CMakeLists.txt` and shared by both renderers.
 
 ---
 
@@ -176,25 +198,45 @@ Follow [Conventional Commits](https://www.conventionalcommits.org/):
 - Detailed bullet point 1
 - Detailed bullet point 2
 ```
-Allowed types: `feat`, `fix`, `perf`, `doc`, `refactor`, `test`, `style`, `chore`.
+Allowed types: `feat`, `fix`, `perf`, `doc`, `refactor`, `test`, `style`, `chore`. There is no `revert` type: a revert gets one of these (e.g. `perf(engine): go back to ...`).
 
 ---
 
 ## 6. Testing & Verification
 
 1. Compile the WebAssembly build and run the tests using `node build-docker.js --test` (each runner ends with `N checks, 0 failed`). Changes to `ARNFTTracker` need a test in `tests/nft_tests.cpp`; pure C++ logic in `src/core/` gets its tests in `tests/core_tests.cpp`.
-2. Start a local HTTP server serving `build-wasm/`:
+2. Start a local HTTP server serving `build-wasm/` (sokol: `build-wasm-sokol/`):
    ```bash
    python -m http.server 8000 --directory build-wasm
    ```
 3. Open `http://localhost:8000/videoTest.html` in a WebGL 2 capable browser (Chrome, Edge, Firefox).
 4. Verify the DevTools console:
-   - WebGL 2 context creation and Filament Engine initialization.
+   - WebGL 2 context creation and Filament Engine initialization (sokol: `sokol_gfx initialized`).
    - Camera parameters from `/assets/camera_para.dat` (`*** Camera Parameter ***`, `SIZE = 640, 480`).
    - `setCamera(): arParamLTCreated` (lookup table creation).
    - NFT marker loaded: `NFT marker 0: 893 x 1117 at 120 dpi`.
    - NFT Camera Frustum projection matrix printed in 4x4 column-major format.
-   - Smooth continuous frame rendering without WASM runtime exceptions.
+   - Smooth continuous frame rendering without WASM runtime exceptions (`Rendered frame` every 120 frames, no `WebGL Error`).
+
+The `/verify-wasm` skill (`.claude/skills/verify-wasm/`) runs this sequence.
+
+### Browser checks
+- The built-in browser of the Claude desktop app blocks the camera: feed the page a synthetic source (`canvas.captureStream()` drawing a recorded video or `third_party/WebARKitLib/tests/data/pinball-demo.jpg` (the marker in a scene, also used by `nft_tests`)) instead of `getUserMedia`.
+- A hidden or covered window stops `requestAnimationFrame` (Playwright's Chrome drops to 1 Hz): keep the window uncovered and discard runs with too few rAF ticks.
+- Compare builds in the same browser, alternating runs; read the pose as the mean over a run (single printed lines jitter by ±4 mm).
+- Playwright screenshots take ~4 s and can show a stale frame: confirm a state change over several captures.
+- A page that loads `videoTest.js` shares its globals (`run`, `Module`, `FS`): put the page's own code in an IIFE and only set `Module`.
 
 ### Profiling the frame pipeline
 Set `Module.webarProfile = { enabled: true }` in the page (it is checked on every tick). Every tick then appends a row to `Module.webarProfile.samples`, with the column names in `Module.webarProfile.columns`: texture upload, capture (the JS capture plus the pose read-out; `drawImage`, `getImageData` and the heap copy also on their own), luma, tracking, app update, render, whole tick (milliseconds of main-thread wall time; GPU work is asynchronous and not included), and whether a frame was captured and the marker tracked. Samples accumulate while it is on. Without it, `tick()` runs unprofiled. `ARNFTTracker::getLastUpdateTimings()` gives the luma and tracking times of the last `update()`.
+
+---
+
+## 7. Claude Code Setup (`.claude/`)
+
+- **`agents/wasm-reviewer.md`**: a read-only reviewer (Read, Grep, Glob) that checks a diff against the rules in sections 2 and 4 of this file. Ask for it before a PR.
+- **`skills/verify-wasm/`**: `/verify-wasm` runs the checks of section 6 (tests, serve, console lines) for one or both renderers.
+- **`settings.json`**:
+  - Allows `node build-docker.js`, the runner tests and read-only git commands without a prompt; git's `--output=<file>` (which writes a file) is denied.
+  - A `PreToolUse` hook (`hooks/guard-submodules.js`, tested by `hooks/guard-submodules.test.js`) blocks Edit / Write / NotebookEdit under `third_party/filament/` and `third_party/WebARKitLib/`: changes there belong upstream (WebARKitLib) or are build products. `third_party/sokol/` is not blocked, so its update procedure works.
+- Personal, machine-specific notes go in `CLAUDE.local.md` at the repository root (git-ignored), not in the shared files.
