@@ -6,7 +6,7 @@
 
 <p align="center">
   <strong>High-performance, pure C++ Augmented Reality framework for the Web</strong><br />
-  Powered by <strong>Google Filament</strong> (PBR Rendering) and <strong>WebARKitLib</strong> (Natural Feature Tracking).
+  Powered by <strong>WebARKitLib</strong> (Natural Feature Tracking), rendering with <strong>Google Filament</strong> (PBR, the default) or <strong>sokol_gfx</strong> (a lighter alternative).
 </p>
 
 <p align="center">
@@ -14,7 +14,8 @@
   <a href="https://en.cppreference.com/w/cpp/17"><img src="https://img.shields.io/badge/C%2B%2B-17-00599C?logo=c%2B%2B" alt="C++17" /></a>
   <a href="https://webassembly.org/"><img src="https://img.shields.io/badge/WebAssembly-WASM-654FF0?logo=webassembly&logoColor=white" alt="WebAssembly" /></a>
   <a href="https://emscripten.org/"><img src="https://img.shields.io/badge/Emscripten-4.0.17-orange" alt="Emscripten 4.0.17" /></a>
-  <a href="https://github.com/google/filament"><img src="https://img.shields.io/badge/Renderer-Google_Filament-4285F4?logo=google" alt="Google Filament" /></a>
+  <a href="https://github.com/google/filament"><img src="https://img.shields.io/badge/Renderer-Google_Filament_%28default%29-4285F4?logo=google" alt="Renderer: Google Filament (default)" /></a>
+  <a href="https://github.com/floooh/sokol"><img src="https://img.shields.io/badge/Renderer-sokol__gfx_%28alternative%29-8B2E2E" alt="Renderer: sokol_gfx (alternative)" /></a>
   <a href="https://www.khronos.org/webgl/"><img src="https://img.shields.io/badge/WebGL-2.0-990000?logo=webgl&logoColor=white" alt="WebGL 2.0" /></a>
   <a href="https://www.gnu.org/licenses/lgpl-3.0"><img src="https://img.shields.io/badge/License-LGPL_v3-blue.svg" alt="License: LGPL v3" /></a>
   <a href="https://github.com/kalwalt/WebAR-Canvas/pulls"><img src="https://img.shields.io/badge/PRs-welcome-brightgreen.svg" alt="PRs Welcome" /></a>
