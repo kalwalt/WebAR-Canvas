@@ -1,0 +1,133 @@
+// Emscripten HTML5 input -> ARBaseApp hooks (#2 phase 4): touch, mouse and window resize.
+// Coordinates are drawing-buffer pixels of the canvas (clientToCanvas in core/ARInput.h).
+
+#include "core/ARBaseApp.h"
+#include "core/ARInput.h"
+
+#include <emscripten.h>
+#include <emscripten/html5.h>
+
+#include <algorithm>
+#include <string>
+#include <vector>
+
+// The canvas element's client rectangle (left, top, width, height) into out[0..3].
+EM_JS(int, webar_canvas_rect, (const char *selector, double *out), {
+  var element = document.querySelector(UTF8ToString(selector));
+  if (!element) return 0;
+  var rect = element.getBoundingClientRect();
+  HEAPF64[(out >> 3) + 0] = rect.left;
+  HEAPF64[(out >> 3) + 1] = rect.top;
+  HEAPF64[(out >> 3) + 2] = rect.width;
+  HEAPF64[(out >> 3) + 3] = rect.height;
+  return 1;
+});
+
+struct ARInputBridge {
+  static ARBaseApp *app;
+  static std::string selector;
+  static int lastWidth;
+  static int lastHeight;
+  static unsigned mouseButtonsDown; // bit per button whose mouseDown reached the app
+  static std::vector<int> touchesDown; // touch identifiers whose touchDown reached the app
+
+  // Client coordinates to canvas pixels; false on a letterbox bar or outside the canvas,
+  // unless clamped (up events), which maps such points to the image's nearest edge.
+  static bool toCanvas(double clientX, double clientY, float &x, float &y, bool clamped = false) {
+    double rect[4];
+    int width = 0, height = 0;
+    if (!webar_canvas_rect(selector.c_str(), rect) ||
+        emscripten_get_canvas_element_size(selector.c_str(), &width, &height) !=
+            EMSCRIPTEN_RESULT_SUCCESS) {
+      return false;
+    }
+    return clamped ? clientToCanvasClamped(clientX, clientY, rect[0], rect[1], rect[2], rect[3],
+                                           width, height, x, y)
+                   : clientToCanvas(clientX, clientY, rect[0], rect[1], rect[2], rect[3], width,
+                                    height, x, y);
+  }
+
+  static EM_BOOL onTouch(int eventType, const EmscriptenTouchEvent *event, void *) {
+    for (int i = 0; i < event->numTouches; ++i) {
+      const EmscriptenTouchPoint &touch = event->touches[i];
+      if (!touch.isChanged) continue;
+      // Up and cancel reach the app (clamped to the image) for every touch whose touchDown
+      // did, so it never keeps a pointer down; other ups are dropped.
+      const bool up = eventType != EMSCRIPTEN_EVENT_TOUCHSTART &&
+                      eventType != EMSCRIPTEN_EVENT_TOUCHMOVE;
+      const int id = static_cast<int>(touch.identifier);
+      const auto down = std::find(touchesDown.begin(), touchesDown.end(), id);
+      if (up && down == touchesDown.end()) continue;
+      float x, y;
+      if (!toCanvas(touch.clientX, touch.clientY, x, y, up)) continue;
+      switch (eventType) {
+        case EMSCRIPTEN_EVENT_TOUCHSTART:
+          if (down == touchesDown.end()) touchesDown.push_back(id);
+          app->touchDown(x, y, id);
+          break;
+        case EMSCRIPTEN_EVENT_TOUCHMOVE: app->touchMoved(x, y, id); break;
+        default: // touchend, touchcancel
+          touchesDown.erase(down);
+          app->touchUp(x, y, id);
+          break;
+      }
+    }
+    return EM_TRUE; // no scrolling or zooming of the page from touches on the canvas
+  }
+
+  static EM_BOOL onMouse(int eventType, const EmscriptenMouseEvent *event, void *) {
+    // mouseup is registered on the window, so a release anywhere is seen; it reaches the app
+    // (clamped to the image) only for a button whose mouseDown did.
+    const bool up = eventType == EMSCRIPTEN_EVENT_MOUSEUP;
+    const unsigned bit = 1u << (event->button & 31);
+    if (up && !(mouseButtonsDown & bit)) return EM_FALSE;
+    float x, y;
+    if (!toCanvas(event->clientX, event->clientY, x, y, up)) return EM_FALSE;
+    const int pointerId = 0; // a single mouse pointer
+    switch (eventType) {
+      case EMSCRIPTEN_EVENT_MOUSEDOWN:
+        mouseButtonsDown |= bit;
+        app->mouseDown(x, y, event->button, pointerId);
+        break;
+      case EMSCRIPTEN_EVENT_MOUSEUP:
+        mouseButtonsDown &= ~bit;
+        app->mouseUp(x, y, event->button, pointerId);
+        break;
+      default: app->mouseMoved(x, y, pointerId); break;
+    }
+    return EM_FALSE;
+  }
+
+  static EM_BOOL onResize(int, const EmscriptenUiEvent *event, void *) {
+    if (event->windowInnerWidth == lastWidth && event->windowInnerHeight == lastHeight) {
+      return EM_FALSE; // the same size again: report each change once
+    }
+    lastWidth = event->windowInnerWidth;
+    lastHeight = event->windowInnerHeight;
+    app->windowResized(lastWidth, lastHeight);
+    return EM_FALSE;
+  }
+};
+
+ARBaseApp *ARInputBridge::app = nullptr;
+std::string ARInputBridge::selector;
+int ARInputBridge::lastWidth = -1;
+int ARInputBridge::lastHeight = -1;
+unsigned ARInputBridge::mouseButtonsDown = 0;
+std::vector<int> ARInputBridge::touchesDown;
+
+void ARBaseApp::installInputCallbacks(const std::string &canvasSelector) {
+  ARInputBridge::app = this;
+  ARInputBridge::selector = canvasSelector;
+  const char *target = canvasSelector.c_str();
+  emscripten_set_touchstart_callback(target, nullptr, EM_TRUE, ARInputBridge::onTouch);
+  emscripten_set_touchmove_callback(target, nullptr, EM_TRUE, ARInputBridge::onTouch);
+  emscripten_set_touchend_callback(target, nullptr, EM_TRUE, ARInputBridge::onTouch);
+  emscripten_set_touchcancel_callback(target, nullptr, EM_TRUE, ARInputBridge::onTouch);
+  emscripten_set_mousedown_callback(target, nullptr, EM_TRUE, ARInputBridge::onMouse);
+  emscripten_set_mousemove_callback(target, nullptr, EM_TRUE, ARInputBridge::onMouse);
+  emscripten_set_mouseup_callback(EMSCRIPTEN_EVENT_TARGET_WINDOW, nullptr, EM_TRUE,
+                                  ARInputBridge::onMouse);
+  emscripten_set_resize_callback(EMSCRIPTEN_EVENT_TARGET_WINDOW, nullptr, EM_TRUE,
+                                 ARInputBridge::onResize);
+}

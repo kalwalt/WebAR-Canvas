@@ -165,7 +165,7 @@ node build-docker.js --clean
 node build-docker.js --test
 ```
 
-The first build also compiles the Filament host tools (`matc`, `resgen`, `cmgen`, `glslminifier`) into `third_party/filament/out/host` with `scripts/build-host-tools.sh`; this takes a while once and is skipped afterwards. The same scripts run in CI (`.github/workflows/build.yml`) on every pull request to `dev` and `master`.
+The first build also compiles the Filament host tools (`matc`, `resgen`, `cmgen`, `glslminifier`, `uberz`) into `third_party/filament/out/host` with `scripts/build-host-tools.sh`; this takes a while once and is skipped afterwards. The same scripts run in CI (`.github/workflows/build.yml`) on every pull request to `dev` and `master`.
 
 Before starting Docker, `build-docker.js` checks that it runs from the repository root with both submodules checked out and that the Docker daemon answers; otherwise it stops at once and says what to do.
 
@@ -211,10 +211,18 @@ protected:
     void setup() override {
         // Once, when the renderer and the tracker are ready: create your entities.
         // getEngine() / getScene() / getCamera() give the Filament objects (Filament build).
+        // attachToMarker(entity, 0) keeps an entity on marker 0, centred, hidden while lost.
+        const float red[4] = {1, 0, 0, 1};
+        utils::Entity cube = createCube(80.0f, red);  // also createBox, createPlane, createSphere
+        attachToMarker(cube, 0);
+        // glTF: a handle, or a negative ARModelError; 80 mm high on marker 0.
+        int model = loadModel("/assets/models/AnimatedMorphCube.glb");
+        if (model >= 0) placeModelOnMarker(model, 0, 80.0f);
     }
 
     void update(float deltaTime) override {
-        // Every frame: marker 0's pose is getModelViewMatrix() while getIsTracking() is true.
+        // Every frame: marker 0's pose is getModelViewMatrix() while getIsTracking() is true;
+        // getMarkerPose(i, matrix) gives any marker's pose.
     }
 
     void draw() override {
@@ -223,6 +231,10 @@ protected:
 
     void onMarkerFound(int markerIndex) override { /* a marker became tracked */ }
     void onMarkerLost(int markerIndex) override { /* a marker is no longer tracked */ }
+
+    // Input, in canvas pixels (e.g. 0..640 x 0..480); pointerId tells touches apart.
+    void touchDown(float x, float y, int pointerId) override { }
+    void mouseDown(float x, float y, int button, int pointerId) override { }
 };
 
 AR_APP_MAIN(MyApp, 640, 480, "/assets/markers/pinball")
@@ -235,6 +247,8 @@ var Module = { webarConfig: { markers: ['/assets/markers/pinball'], videoWidth: 
 ```
 
 The default shell (`src/shell.html`) already declares `var Module = { ... }`: add `webarConfig` to that object rather than declaring a second `Module`.
+
+To start your own project from this repository and publish it on GitHub Pages, see [Using WebAR-Canvas as a template](docs/template.md).
 
 ---
 

@@ -1,5 +1,5 @@
 #!/bin/sh
-# Builds the Filament host tools (matc, resgen, cmgen, glslminifier) that the WebAssembly
+# Builds the Filament host tools (matc, resgen, cmgen, glslminifier, uberz) that the WebAssembly
 # build of Filament and of WebAR-Canvas runs at build time.
 #
 # Run it inside the emscripten/emsdk image, as build-docker.js and the CI do. It uses emsdk's
@@ -15,7 +15,8 @@ set -eu
 root=$(cd "$(dirname "$0")/.." && pwd)
 filament="$root/third_party/filament"
 host="$filament/out/host"
-tools="matc resgen cmgen glslminifier"
+# uberz builds the ubershader archive that gltfio (glTF loading) links.
+tools="matc resgen cmgen glslminifier uberz"
 
 missing=""
 for tool in $tools; do
@@ -42,9 +43,14 @@ fi
 clang_dir="${EMSDK:-/emsdk}/upstream/bin"
 mkdir -p "$host"
 cd "$host"
+# -include unistd.h: uberz includes Filament's bundled <getopt/getopt.h> (getopt() without an
+# exception specification) before headers that pull in glibc's <unistd.h> (getopt() noexcept)
+# through libstdc++'s <atomic>; clang rejects that order. With the system declaration first,
+# the later one is accepted (a redeclaration of a system-header function).
 CC="$clang_dir/clang" CXX="$clang_dir/clang++" cmake ../.. \
   -G "Unix Makefiles" \
   -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_CXX_FLAGS="-include unistd.h" \
   -DUSE_STATIC_LIBCXX=OFF \
   -DFILAMENT_SUPPORTS_VULKAN=OFF \
   -DFILAMENT_SKIP_SAMPLES=ON \

@@ -96,6 +96,7 @@ set(SOURCES
     src/app/App.cpp
     src/core/ARBaseEngine.cpp
     src/core/ARBaseApp.cpp
+    src/core/ARInput.cpp
     src/core/FilamentRenderer.cpp
     ${MATERIAL_OUTPUT}
     ${CUBE_MATERIAL_OUTPUT}
@@ -143,8 +144,9 @@ target_link_options(${PROJECT_NAME} PRIVATE
     "-sUSE_ZLIB=1"
     "-lhtml5"
     "-lGL" # This links the native WebGL of Emscripten
-    "-sEXPORTED_FUNCTIONS=['_main']"
-    "-sEXPORTED_RUNTIME_METHODS=['GL','UTF8ToString']"
+    # webar_load_model / webar_place_model are EMSCRIPTEN_KEEPALIVE; pages call them with ccall.
+    "-sEXPORTED_FUNCTIONS=['_main','_webar_load_model','_webar_place_model']"
+    "-sEXPORTED_RUNTIME_METHODS=['GL','UTF8ToString','ccall','FS_createDataFile']"
     "--shell-file=${CMAKE_CURRENT_SOURCE_DIR}/src/shell.html"
     "--embed-file=${MATERIAL_OUTPUT}@/assets/video_background.fil"
     "--embed-file=${CUBE_MATERIAL_OUTPUT}@/assets/ar_cube.fil"
@@ -156,6 +158,18 @@ target_link_options(${PROJECT_NAME} PRIVATE
 )
 
 add_dependencies(${PROJECT_NAME} filament ARNFTTracker)
+
+# --- glTF models through Filament's gltfio (needs the uberz host tool for uberarchive) ---
+option(WEBAR_CANVAS_GLTF "Load glTF models with Filament's gltfio (ARBaseApp::loadModel)" ON)
+if(WEBAR_CANVAS_GLTF)
+    target_sources(${PROJECT_NAME} PRIVATE src/core/ARModel.cpp)
+    target_compile_definitions(${PROJECT_NAME} PRIVATE WEBAR_CANVAS_GLTF=1)
+    target_link_libraries(${PROJECT_NAME} PUBLIC gltfio_core uberarchive)
+    # The demo's model: AnimatedMorphCube (CC0, Microsoft) from the Filament submodule.
+    target_link_options(${PROJECT_NAME} PRIVATE
+        "--embed-file=${FILAMENT_SOURCE_DIR}/third_party/models/AnimatedMorphCube/AnimatedMorphCube.glb@/assets/models/AnimatedMorphCube.glb"
+    )
+endif()
 
 # --- Node test runners (scripts/test-wasm.sh, node build-docker.js --test) ---
 option(WEBAR_CANVAS_BUILD_TESTS "Build the Node test runners (nft_tests, core_tests)" OFF)
@@ -175,7 +189,7 @@ if(WEBAR_CANVAS_BUILD_TESTS)
         "--embed-file=${WEBARKITLIB_DIR}/tests/data@/data"
     )
 
-    # Pure C++ parts of the framework core (src/core/AREvents.h, ARAppConfig.h): no Filament, no tracker.
+    # Pure C++ parts of the framework core (src/core/AREvents.h, ARAppConfig.h, ARAnchor.h, ARInput.h): no Filament, no tracker.
     add_executable(core_tests tests/core_tests.cpp)
     target_include_directories(core_tests PRIVATE src/)
     set_target_properties(core_tests PROPERTIES SUFFIX ".js")

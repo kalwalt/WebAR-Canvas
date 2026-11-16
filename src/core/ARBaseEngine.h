@@ -5,6 +5,7 @@
 #include "core/AREvents.h"
 #include "core/IARRenderer.h"
 
+#include <array>
 #include <memory>
 #include <vector>
 
@@ -51,6 +52,15 @@ protected:
   bool getIsTracking() const { return isTracking; }
   ARNFTTracker *getNFTTracker() const { return nftTracker.get(); }
 
+  // Marker markerIndex's model-view matrix (column-major) on the last processed camera frame.
+  // False, and zeros in out, when the marker is not tracked or does not exist.
+  bool getMarkerPose(int markerIndex, float out[16]) const;
+  // True on a tick that captured and tracked a new camera frame (poses change only then).
+  bool isNewCameraFrame() const { return frameCaptured; }
+
+  // Internal step just before update() every tick (ARBaseApp applies the marker anchors here).
+  virtual void beforeUpdate() {}
+
   // The rendering backend; valid after a successful init().
   IARRenderer &getRenderer() { return *renderer; }
   const IARRenderer &getRenderer() const { return *renderer; }
@@ -72,6 +82,7 @@ private:
   double lastTickMs = -1.0;
   MarkerEventTracker markerEvents;
   std::vector<bool> markerTracked;
+  std::vector<std::array<float, 16>> markerPoses; // per marker, from the last processed frame
 
   std::unique_ptr<IARRenderer> renderer;
 };

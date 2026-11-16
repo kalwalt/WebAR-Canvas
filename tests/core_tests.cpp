@@ -1,10 +1,13 @@
 // Node test runner for the pure C++ parts of the framework core (target core_tests, built with
 // -DWEBAR_CANVAS_BUILD_TESTS=ON). Run it with scripts/test-wasm.sh or `node build-docker.js --test`.
-// Covers src/core/AREvents.h and src/core/ARAppConfig.h: no Filament, no tracker, no browser.
-// The exit code is the number of failed checks.
+// Covers the pure headers of src/core/ (AREvents, ARAppConfig, ARAnchor, ARInput): no Filament,
+// no tracker, no browser. The exit code is the number of failed checks.
 
+#include "core/ARAnchor.h"
 #include "core/ARAppConfig.h"
 #include "core/AREvents.h"
+#include "core/ARInput.h"
+#include "core/ARPrimitives.h"
 
 #include <cmath>
 #include <cstdio>
@@ -101,6 +104,196 @@ static void delta_is_clamped() { CHECK(computeDeltaSeconds(1000.0, 6000.0) == 0.
 
 static void delta_never_negative() { CHECK(computeDeltaSeconds(1000.0, 999.0) == 0.0); }
 
+// --- ARAnchor (column-major 4x4: translation in [12], [13], [14]) ---
+
+static void setIdentity(float m[16]) {
+  for (int i = 0; i < 16; ++i) m[i] = (i % 5 == 0) ? 1.0f : 0.0f;
+}
+
+static bool near(float a, float b, float eps = 1e-3f) { return std::fabs(a - b) < eps; }
+
+static void marker_center_pinball() {
+  float x = 0.0f, y = 0.0f;
+  markerCenterMm(893, 1117, 120, x, y);
+  CHECK(near(x, 94.51f, 0.01f) && near(y, 118.22f, 0.01f));
+}
+
+static void anchor_identity_pose_centres() {
+  ARAnchor anchor;
+  float pose[16], out[16];
+  setIdentity(pose);
+  anchor.update(true, pose, 94.51f, 118.22f, out);
+  CHECK(anchor.visible());
+  CHECK(near(out[12], 94.51f) && near(out[13], 118.22f) && near(out[14], 0.0f));
+  CHECK(near(out[0], 1.0f) && near(out[5], 1.0f) && near(out[10], 1.0f) && near(out[15], 1.0f));
+  CHECK(near(out[1], 0.0f) && near(out[4], 0.0f) && near(out[8], 0.0f));
+}
+
+static void anchor_hidden_when_lost() {
+  ARAnchor anchor;
+  float pose[16], out[16];
+  setIdentity(pose);
+  anchor.update(true, pose, 0.0f, 0.0f, out);
+  anchor.update(false, pose, 0.0f, 0.0f, out);
+  CHECK(!anchor.visible());
+}
+
+static void anchor_smoothing_halfway() {
+  ARAnchorOptions options;
+  options.centerOnMarker = false;
+  options.smoothing = 0.5f;
+  ARAnchor anchor(options);
+  float pose[16], out[16];
+  setIdentity(pose);
+  anchor.update(true, pose, 50.0f, 50.0f, out);
+  pose[12] = 10.0f;
+  anchor.update(true, pose, 50.0f, 50.0f, out);
+  CHECK(near(out[12], 5.0f) && near(out[13], 0.0f));
+  CHECK(near(out[0], 1.0f) && near(out[5], 1.0f) && near(out[10], 1.0f));
+}
+
+static void anchor_no_smoothing_across_loss() {
+  ARAnchorOptions options;
+  options.centerOnMarker = false;
+  options.smoothing = 0.5f;
+  ARAnchor anchor(options);
+  float pose[16], out[16];
+  setIdentity(pose);
+  anchor.update(true, pose, 0.0f, 0.0f, out);
+  anchor.update(false, pose, 0.0f, 0.0f, out);
+  pose[12] = 10.0f;
+  anchor.update(true, pose, 0.0f, 0.0f, out);
+  CHECK(anchor.visible() && near(out[12], 10.0f));
+}
+
+// --- clientToCanvas: CSS client coordinates to drawing-buffer pixels (object-fit: contain) ---
+
+static void client_to_canvas_letterbox_wide() {
+  // Element 1280x480 showing a 640x480 canvas: the image spans x 320..960.
+  float x = -1.0f, y = -1.0f;
+  CHECK(clientToCanvas(640.0, 240.0, 0.0, 0.0, 1280.0, 480.0, 640, 480, x, y));
+  CHECK(near(x, 320.0f) && near(y, 240.0f));
+  x = y = -1.0f;
+  CHECK(!clientToCanvas(100.0, 240.0, 0.0, 0.0, 1280.0, 480.0, 640, 480, x, y)); // left bar
+  CHECK(x == -1.0f && y == -1.0f);                                               // untouched
+}
+
+static void client_to_canvas_letterbox_tall() {
+  // Element 640x960 showing a 640x480 canvas: the image spans y 240..720.
+  float x = 0.0f, y = 0.0f;
+  CHECK(clientToCanvas(320.0, 480.0, 0.0, 0.0, 640.0, 960.0, 640, 480, x, y));
+  CHECK(near(x, 320.0f) && near(y, 240.0f));
+  CHECK(!clientToCanvas(320.0, 100.0, 0.0, 0.0, 640.0, 960.0, 640, 480, x, y)); // top bar
+}
+
+static void client_to_canvas_corners() {
+  float x = 0.0f, y = 0.0f;
+  CHECK(clientToCanvas(320.0, 0.0, 0.0, 0.0, 1280.0, 480.0, 640, 480, x, y));
+  CHECK(near(x, 0.0f) && near(y, 0.0f));
+  CHECK(clientToCanvas(959.9, 479.9, 0.0, 0.0, 1280.0, 480.0, 640, 480, x, y));
+  CHECK(x < 640.0f && y < 480.0f && x > 639.0f && y > 479.0f);
+  CHECK(!clientToCanvas(960.0, 240.0, 0.0, 0.0, 1280.0, 480.0, 640, 480, x, y)); // right edge
+}
+
+static void client_to_canvas_with_offset() {
+  float x = 0.0f, y = 0.0f;
+  CHECK(clientToCanvas(110.0, 220.0, 10.0, 20.0, 640.0, 480.0, 640, 480, x, y));
+  CHECK(near(x, 100.0f) && near(y, 200.0f));
+}
+
+static void client_to_canvas_css_scale() {
+  // Element 320x240 CSS pixels showing a 640x480 buffer (high-DPI or CSS scaling).
+  float x = 0.0f, y = 0.0f;
+  CHECK(clientToCanvas(160.0, 120.0, 0.0, 0.0, 320.0, 240.0, 640, 480, x, y));
+  CHECK(near(x, 320.0f) && near(y, 240.0f));
+}
+
+static void client_to_canvas_clamped_on_bars() {
+  // Up events are delivered even off the image: the point is clamped to its edge.
+  float x = -1.0f, y = -1.0f;
+  CHECK(clientToCanvasClamped(100.0, 240.0, 0.0, 0.0, 1280.0, 480.0, 640, 480, x, y));
+  CHECK(near(x, 0.0f) && near(y, 240.0f)); // left bar
+  CHECK(clientToCanvasClamped(2000.0, -50.0, 0.0, 0.0, 1280.0, 480.0, 640, 480, x, y));
+  CHECK(near(x, 640.0f) && near(y, 0.0f)); // outside the element
+  CHECK(clientToCanvasClamped(640.0, 240.0, 0.0, 0.0, 1280.0, 480.0, 640, 480, x, y));
+  CHECK(near(x, 320.0f) && near(y, 240.0f)); // inside: same as clientToCanvas
+  CHECK(!clientToCanvasClamped(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 640, 480, x, y)); // no size yet
+}
+
+// --- ARPrimitives: geometry for createBox / createPlane / createSphere ---
+
+static const float kColors[6][4] = {{1, 0, 0, 1}, {0, 1, 1, 1}, {1, 1, 0, 1},
+                                    {0, 0, 1, 1}, {1, 0, 1, 1}, {0, 1, 0, 1}};
+
+static bool indicesInRange(const ARMesh &mesh) {
+  for (uint16_t i : mesh.indices) {
+    if (i >= mesh.vertices.size()) return false;
+  }
+  return mesh.indices.size() % 3 == 0;
+}
+
+static void box_counts() {
+  const ARMesh box = makeBox(80.0f, 60.0f, 40.0f, kColors);
+  CHECK(box.vertices.size() == 24 && box.indices.size() == 36);
+  float minZ = 1e9f, maxZ = -1e9f, maxX = -1e9f, maxY = -1e9f;
+  for (const ARVertex &v : box.vertices) {
+    minZ = std::fmin(minZ, v.position[2]);
+    maxZ = std::fmax(maxZ, v.position[2]);
+    maxX = std::fmax(maxX, v.position[0]);
+    maxY = std::fmax(maxY, v.position[1]);
+  }
+  CHECK(near(minZ, 0.0f) && near(maxZ, 40.0f)); // base on z = 0
+  CHECK(near(maxX, 40.0f) && near(maxY, 30.0f)); // centred in x and y
+  // First face (+Z, the top, z = sizeZ) in the first colour, as the demo cube.
+  CHECK(near(box.vertices[0].position[2], 40.0f) && box.vertices[0].color[0] == 1.0f &&
+        box.vertices[0].color[1] == 0.0f);
+}
+
+static void plane_counts() {
+  const float color[4] = {0.5f, 0.5f, 0.5f, 1.0f};
+  const ARMesh plane = makePlane(100.0f, 50.0f, color);
+  CHECK(plane.vertices.size() == 4 && plane.indices.size() == 6);
+  bool flat = true;
+  for (const ARVertex &v : plane.vertices) flat = flat && v.position[2] == 0.0f;
+  CHECK(flat);
+}
+
+static void sphere_counts_and_radius() {
+  const float color[4] = {1, 1, 1, 1};
+  const ARMesh sphere = makeSphere(25.0f, 8, 4, color);
+  CHECK(sphere.vertices.size() == (4 + 1) * (8 + 1));
+  CHECK(sphere.indices.size() == 4 * 8 * 6);
+  bool onSurface = true;
+  for (const ARVertex &v : sphere.vertices) {
+    const float r = std::sqrt(v.position[0] * v.position[0] + v.position[1] * v.position[1] +
+                              v.position[2] * v.position[2]);
+    onSurface = onSurface && std::fabs(r - 25.0f) < 1e-3f;
+  }
+  CHECK(onSurface);
+}
+
+static void sphere_minimum_segments() {
+  const float color[4] = {1, 1, 1, 1};
+  const ARMesh small = makeSphere(1.0f, 1, 1, color);
+  const ARMesh minimum = makeSphere(1.0f, 3, 2, color);
+  CHECK(small.vertices.size() == minimum.vertices.size());
+  CHECK(small.indices.size() == minimum.indices.size());
+}
+
+static void sphere_fits_16_bit_indices() {
+  const float color[4] = {1, 1, 1, 1};
+  const ARMesh big = makeSphere(1.0f, 400, 400, color);
+  CHECK(big.vertices.size() <= 65536);
+  CHECK(indicesInRange(big));
+}
+
+static void primitive_indices_in_range() {
+  const float color[4] = {1, 1, 1, 1};
+  CHECK(indicesInRange(makeBox(1.0f, 1.0f, 1.0f, kColors)));
+  CHECK(indicesInRange(makePlane(1.0f, 1.0f, color)));
+  CHECK(indicesInRange(makeSphere(1.0f, 24, 16, color)));
+}
+
 struct TestCase {
   const char *name;
   void (*run)();
@@ -118,6 +311,23 @@ static const TestCase kTests[] = {
     {"delta_in_seconds", delta_in_seconds},
     {"delta_is_clamped", delta_is_clamped},
     {"delta_never_negative", delta_never_negative},
+    {"marker_center_pinball", marker_center_pinball},
+    {"anchor_identity_pose_centres", anchor_identity_pose_centres},
+    {"anchor_hidden_when_lost", anchor_hidden_when_lost},
+    {"anchor_smoothing_halfway", anchor_smoothing_halfway},
+    {"anchor_no_smoothing_across_loss", anchor_no_smoothing_across_loss},
+    {"client_to_canvas_letterbox_wide", client_to_canvas_letterbox_wide},
+    {"client_to_canvas_letterbox_tall", client_to_canvas_letterbox_tall},
+    {"client_to_canvas_corners", client_to_canvas_corners},
+    {"client_to_canvas_with_offset", client_to_canvas_with_offset},
+    {"client_to_canvas_css_scale", client_to_canvas_css_scale},
+    {"client_to_canvas_clamped_on_bars", client_to_canvas_clamped_on_bars},
+    {"box_counts", box_counts},
+    {"plane_counts", plane_counts},
+    {"sphere_counts_and_radius", sphere_counts_and_radius},
+    {"sphere_minimum_segments", sphere_minimum_segments},
+    {"primitive_indices_in_range", primitive_indices_in_range},
+    {"sphere_fits_16_bit_indices", sphere_fits_16_bit_indices},
 };
 
 int main() {
