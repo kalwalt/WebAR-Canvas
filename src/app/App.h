@@ -3,11 +3,10 @@
 
 #include "core/ARBaseApp.h"
 
-// The demo app: a colourful 3D cube on the pinball marker.
+// The demo app: a colourful 3D cube on the pinball marker, the same source on every renderer
+// (the backend-neutral mesh API); with Filament and glTF, a tap or click switches to a model.
 class App : public ARBaseApp {
 public:
-    ~App() override;
-
     // Asset loading: create a colorful 3D Cube sitting on the marker
     void setup() override;
 
@@ -24,11 +23,9 @@ public:
 private:
     void toggleModel(); // a tap or click switches between the cube and the glTF model
 
-#ifdef WEBAR_RENDERER_FILAMENT
-    utils::Entity anchorEntity; // bound to marker 0, centred on it
-    utils::Entity cubeEntity;   // child of anchorEntity, spinning (owned by ARBaseApp)
-#endif
-    int modelHandle = -1;       // AnimatedMorphCube.glb on marker 0 (loadModel), or an error
+    int cube = -1;        // mesh id, bound to marker 0 and centred on it (ARBaseApp releases it)
+    float spinAngle = 0.0f;
+    int modelHandle = -1; // AnimatedMorphCube.glb on marker 0 (loadModel), or an error
     bool showModel = false;
 };
 

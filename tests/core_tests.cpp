@@ -7,6 +7,7 @@
 #include "core/ARAppConfig.h"
 #include "core/AREvents.h"
 #include "core/ARInput.h"
+#include "core/ARMeshAnchors.h"
 #include "core/ARPrimitives.h"
 
 #include <cmath>
@@ -220,6 +221,135 @@ static void client_to_canvas_clamped_on_bars() {
   CHECK(!clientToCanvasClamped(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 640, 480, x, y)); // no size yet
 }
 
+// --- ARMeshAnchors: mesh ids bound to markers (the backend-neutral mesh API, #13) ---
+
+// A pose source for ARMeshAnchors::update(): one marker, counting the reads.
+struct FakePoses {
+  bool tracked = true;
+  float pose[16];
+  float centerX = 0.0f, centerY = 0.0f;
+  int reads = 0;
+  int lastMarker = -1;
+  FakePoses() { setIdentity(pose); }
+  bool operator()(int marker, float out[16], float &cx, float &cy) {
+    ++reads;
+    lastMarker = marker;
+    for (int i = 0; i < 16; ++i) out[i] = pose[i];
+    cx = centerX;
+    cy = centerY;
+    return tracked;
+  }
+};
+
+// The world matrices update() applied, by mesh id.
+struct Applied {
+  std::vector<std::vector<float>> world = std::vector<std::vector<float>>(8);
+  std::vector<int> count = std::vector<int>(8, 0);
+  void operator()(int id, const float m[16]) {
+    world[id].assign(m, m + 16);
+    ++count[id];
+  }
+};
+
+static void translation(float m[16], float x, float y, float z) {
+  setIdentity(m);
+  m[12] = x;
+  m[13] = y;
+  m[14] = z;
+}
+
+static void mesh_unbound_world_is_local() {
+  ARMeshAnchors meshes;
+  float local[16];
+  translation(local, 1.0f, 2.0f, 3.0f);
+  meshes.setLocal(0, local);
+  FakePoses poses;
+  Applied applied;
+  meshes.update(true, poses, applied);
+  CHECK(applied.count[0] == 1 && poses.reads == 0);
+  CHECK(near(applied.world[0][12], 1.0f) && near(applied.world[0][13], 2.0f) &&
+        near(applied.world[0][14], 3.0f) && near(applied.world[0][15], 1.0f));
+}
+
+static void mesh_bound_identity_pose_centres() {
+  ARMeshAnchors meshes;
+  meshes.attach(0, 0);
+  FakePoses poses;
+  poses.centerX = 10.0f;
+  poses.centerY = 20.0f;
+  Applied applied;
+  meshes.update(true, poses, applied);
+  CHECK(near(applied.world[0][12], 10.0f) && near(applied.world[0][13], 20.0f) &&
+        near(applied.world[0][14], 0.0f) && near(applied.world[0][0], 1.0f));
+}
+
+static void mesh_anchor_then_local() {
+  // world = anchored * local: a local offset along x follows the marker's rotation.
+  ARMeshAnchors meshes;
+  ARAnchorOptions options;
+  options.centerOnMarker = false;
+  meshes.attach(0, 0, options);
+  float local[16];
+  translation(local, 1.0f, 0.0f, 0.0f);
+  meshes.setLocal(0, local);
+  FakePoses poses; // rotation of 90 degrees about z: x -> y
+  poses.pose[0] = 0.0f;
+  poses.pose[1] = 1.0f;
+  poses.pose[4] = -1.0f;
+  poses.pose[5] = 0.0f;
+  Applied applied;
+  meshes.update(true, poses, applied);
+  CHECK(near(applied.world[0][12], 0.0f) && near(applied.world[0][13], 1.0f));
+}
+
+static void mesh_hidden_while_lost() {
+  ARMeshAnchors meshes;
+  meshes.attach(0, 0);
+  FakePoses poses;
+  poses.tracked = false;
+  Applied applied;
+  meshes.update(true, poses, applied);
+  bool allZero = applied.count[0] == 1;
+  for (float v : applied.world[0]) allZero = allZero && v == 0.0f;
+  CHECK(allZero);
+}
+
+static void mesh_pose_read_once_per_camera_frame() {
+  ARMeshAnchors meshes;
+  meshes.attach(0, 0);
+  FakePoses poses;
+  Applied applied;
+  meshes.update(false, poses, applied); // first update after binding: reads the pose anyway
+  CHECK(poses.reads == 1);
+  meshes.update(false, poses, applied); // same camera frame: no read, the world is reapplied
+  CHECK(poses.reads == 1 && applied.count[0] == 2);
+  meshes.update(true, poses, applied);
+  CHECK(poses.reads == 2 && applied.count[0] == 3);
+}
+
+static void mesh_rebind_and_detach() {
+  ARMeshAnchors meshes;
+  meshes.attach(0, 0);
+  meshes.attach(0, 1); // re-binding replaces the first binding
+  FakePoses poses;
+  Applied applied;
+  meshes.update(true, poses, applied);
+  CHECK(poses.lastMarker == 1 && poses.reads == 1);
+  meshes.detach(0);
+  meshes.update(true, poses, applied);
+  CHECK(poses.reads == 1 && near(applied.world[0][12], 0.0f) && near(applied.world[0][15], 1.0f));
+}
+
+static void mesh_remove_forgets() {
+  ARMeshAnchors meshes;
+  meshes.attach(2, 0);
+  meshes.remove(2);
+  FakePoses poses;
+  Applied applied;
+  meshes.update(true, poses, applied);
+  CHECK(applied.count[2] == 0 && poses.reads == 0);
+}
+
 // --- ARPrimitives: geometry for createBox / createPlane / createSphere ---
 
 static const float kColors[6][4] = {{1, 0, 0, 1}, {0, 1, 1, 1}, {1, 1, 0, 1},
@@ -322,6 +452,13 @@ static const TestCase kTests[] = {
     {"client_to_canvas_with_offset", client_to_canvas_with_offset},
     {"client_to_canvas_css_scale", client_to_canvas_css_scale},
     {"client_to_canvas_clamped_on_bars", client_to_canvas_clamped_on_bars},
+    {"mesh_unbound_world_is_local", mesh_unbound_world_is_local},
+    {"mesh_bound_identity_pose_centres", mesh_bound_identity_pose_centres},
+    {"mesh_anchor_then_local", mesh_anchor_then_local},
+    {"mesh_hidden_while_lost", mesh_hidden_while_lost},
+    {"mesh_pose_read_once_per_camera_frame", mesh_pose_read_once_per_camera_frame},
+    {"mesh_rebind_and_detach", mesh_rebind_and_detach},
+    {"mesh_remove_forgets", mesh_remove_forgets},
     {"box_counts", box_counts},
     {"plane_counts", plane_counts},
     {"sphere_counts_and_radius", sphere_counts_and_radius},

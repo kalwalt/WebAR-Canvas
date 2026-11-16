@@ -6,6 +6,7 @@
 #include <GLES3/gl3.h>
 #include <emscripten/html5.h>
 
+#include <cstddef>
 #include <cstdio>
 
 namespace {
@@ -31,6 +32,39 @@ void main() {
   frag_color = vec4(texture(video_tex, uv).rgb, 1.0);
 }
 )";
+
+// The meshes: unlit, vertex colour, as ar_cube.mat (Filament's unlit model with no
+// post-processing writes the vertex colour unchanged).
+const char *kMeshVertexShader = R"(#version 300 es
+uniform mat4 mvp;
+in vec3 position;
+in vec4 color0;
+out vec4 color;
+void main() {
+  gl_Position = mvp * vec4(position, 1.0);
+  color = color0;
+}
+)";
+
+const char *kMeshFragmentShader = R"(#version 300 es
+precision mediump float;
+in vec4 color;
+out vec4 frag_color;
+void main() {
+  frag_color = color;
+}
+)";
+
+// out = a * b, column-major.
+void multiply(const float a[16], const float b[16], float out[16]) {
+  for (int c = 0; c < 4; ++c) {
+    for (int r = 0; r < 4; ++r) {
+      float sum = 0.0f;
+      for (int k = 0; k < 4; ++k) sum += a[k * 4 + r] * b[c * 4 + k];
+      out[c * 4 + r] = sum;
+    }
+  }
+}
 
 } // namespace
 
@@ -82,7 +116,7 @@ bool SokolRenderer::init(const char *canvasSelector, int w, int h) {
   }
   ready = true;
   printf("WebGL 2 Context created and active. sokol_gfx initialized.\n");
-  return createVideoBackground();
+  return createVideoBackground() && createMeshPipeline();
 }
 
 bool SokolRenderer::createVideoBackground() {
@@ -164,6 +198,87 @@ bool SokolRenderer::createVideoBackground() {
   return ok;
 }
 
+bool SokolRenderer::createMeshPipeline() {
+  sg_shader_desc shader = {};
+  shader.vertex_func.source = kMeshVertexShader;
+  shader.fragment_func.source = kMeshFragmentShader;
+  shader.attrs[0].base_type = SG_SHADERATTRBASETYPE_FLOAT;
+  shader.attrs[0].glsl_name = "position";
+  shader.attrs[1].base_type = SG_SHADERATTRBASETYPE_FLOAT;
+  shader.attrs[1].glsl_name = "color0";
+  shader.uniform_blocks[0].stage = SG_SHADERSTAGE_VERTEX;
+  shader.uniform_blocks[0].size = 16 * sizeof(float);
+  shader.uniform_blocks[0].glsl_uniforms[0].type = SG_UNIFORMTYPE_MAT4;
+  shader.uniform_blocks[0].glsl_uniforms[0].glsl_name = "mvp";
+  shader.label = "mesh-shader";
+  meshShader = sg_make_shader(&shader);
+
+  sg_pipeline_desc pipeline = {};
+  pipeline.shader = meshShader;
+  pipeline.layout.buffers[0].stride = sizeof(ARVertex);
+  pipeline.layout.attrs[0].format = SG_VERTEXFORMAT_FLOAT3;
+  pipeline.layout.attrs[0].offset = offsetof(ARVertex, position);
+  pipeline.layout.attrs[1].format = SG_VERTEXFORMAT_FLOAT4;
+  pipeline.layout.attrs[1].offset = offsetof(ARVertex, color);
+  pipeline.index_type = SG_INDEXTYPE_UINT16;
+  pipeline.cull_mode = SG_CULLMODE_NONE; // as ar_cube.mat (culling: none)
+  pipeline.depth.compare = SG_COMPAREFUNC_LESS_EQUAL;
+  pipeline.depth.write_enabled = true;
+  pipeline.label = "mesh-pipeline";
+  meshPipeline = sg_make_pipeline(&pipeline);
+
+  const bool ok = sg_query_pipeline_state(meshPipeline) == SG_RESOURCESTATE_VALID;
+  if (!ok) printf("ERROR: the sokol mesh pipeline could not be created\n");
+  return ok;
+}
+
+SokolRenderer::Mesh *SokolRenderer::findMesh(int id) {
+  return id >= 0 && id < static_cast<int>(meshes.size()) && meshes[id].alive ? &meshes[id]
+                                                                             : nullptr;
+}
+
+int SokolRenderer::addMesh(const ARMesh &mesh) {
+  if (!ready || mesh.vertices.empty() || mesh.indices.empty()) return -1;
+  Mesh m;
+  sg_buffer_desc vertices = {};
+  vertices.usage.vertex_buffer = true;
+  vertices.data = {mesh.vertices.data(), mesh.vertices.size() * sizeof(ARVertex)};
+  vertices.label = "mesh-vertices";
+  m.vertices = sg_make_buffer(&vertices);
+  sg_buffer_desc indices = {};
+  indices.usage.index_buffer = true;
+  indices.data = {mesh.indices.data(), mesh.indices.size() * sizeof(uint16_t)};
+  indices.label = "mesh-indices";
+  m.indices = sg_make_buffer(&indices);
+  m.indexCount = static_cast<int>(mesh.indices.size());
+  m.alive = true;
+  meshes.push_back(m);
+  return static_cast<int>(meshes.size()) - 1;
+}
+
+void SokolRenderer::setMeshTransform(int id, const float transform[16]) {
+  Mesh *m = findMesh(id);
+  if (!m) return;
+  bool zero = true;
+  for (int i = 0; i < 16; ++i) {
+    m->transform[i] = transform[i];
+    zero = zero && transform[i] == 0.0f;
+  }
+  m->zero = zero;
+}
+
+void SokolRenderer::setMeshVisible(int id, bool visible) {
+  if (Mesh *m = findMesh(id)) m->visible = visible;
+}
+
+void SokolRenderer::removeMesh(int id) {
+  Mesh *m = findMesh(id);
+  if (!m) return;
+  sg_destroy_buffer(m->vertices);
+  sg_destroy_buffer(m->indices);
+  *m = Mesh(); // not alive; the id is not reused
+}
+
 void SokolRenderer::setProjection(const double p[16], double /*nearPlane*/, double /*farPlane*/) {
   for (int i = 0; i < 16; ++i) projection[i] = static_cast<float>(p[i]);
 }
@@ -196,6 +311,25 @@ void SokolRenderer::render() {
   sg_apply_pipeline(videoPipeline);
   sg_apply_bindings(&video);
   sg_draw(0, 4, 1);
+
+  // The meshes, over the video, with depth testing.
+  bool pipelineApplied = false;
+  for (const Mesh &m : meshes) {
+    if (!m.alive || !m.visible || m.zero) continue;
+    if (!pipelineApplied) {
+      sg_apply_pipeline(meshPipeline);
+      pipelineApplied = true;
+    }
+    sg_bindings bindings = {};
+    bindings.vertex_buffers[0] = m.vertices;
+    bindings.index_buffer = m.indices;
+    sg_apply_bindings(&bindings);
+    float mvp[16];
+    multiply(projection, m.transform, mvp);
+    const sg_range uniforms = {mvp, sizeof(mvp)};
+    sg_apply_uniforms(0, &uniforms);
+    sg_draw(0, m.indexCount, 1);
+  }
 
   sg_end_pass();
   sg_commit();

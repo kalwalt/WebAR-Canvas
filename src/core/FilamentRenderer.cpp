@@ -17,13 +17,18 @@
 #include <filament/SwapChain.h>
 #include <filament/Texture.h>
 #include <filament/TextureSampler.h>
+#include <filament/TransformManager.h>
 #include <filament/VertexBuffer.h>
 #include <filament/View.h>
 #include <filament/Viewport.h>
 #include <math/mat4.h>
 #include <utils/EntityManager.h>
 
+#include <algorithm>
+#include <cstddef>
 #include <cstdio>
+#include <cstdlib>
+#include <cstring>
 #include <fstream>
 #include <iterator>
 #include <vector>
@@ -63,6 +68,9 @@ FilamentRenderer::~FilamentRenderer() {
     delete platform;
     return;
   }
+  for (Mesh &mesh : meshes) destroyMesh(mesh); // before the material they use
+  if (vertexColorInstance) engine->destroy(vertexColorInstance);
+  if (vertexColorMaterial) engine->destroy(vertexColorMaterial);
   engine->destroy(renderer);
   engine->destroy(swapChain);
   engine->destroy(scene);
@@ -228,6 +236,124 @@ void FilamentRenderer::createVideoBackground(int width, int height) {
       .build(*engine, videoQuad);
 
   scene->addEntity(videoQuad);
+}
+
+bool FilamentRenderer::loadVertexColorMaterial() {
+  if (vertexColorMaterial) return true;
+  std::ifstream is("/assets/ar_cube.fil", std::ios::binary);
+  if (!is) {
+    printf("ERROR: Failed to open /assets/ar_cube.fil for the meshes\n");
+    return false;
+  }
+  std::vector<char> package((std::istreambuf_iterator<char>(is)), std::istreambuf_iterator<char>());
+  vertexColorMaterial = Material::Builder().package(package.data(), package.size()).build(*engine);
+  vertexColorInstance = vertexColorMaterial->createInstance();
+  return true;
+}
+
+utils::Entity FilamentRenderer::createVertexColorRenderable(const ARMesh &mesh,
+                                                            VertexBuffer *&vertices,
+                                                            IndexBuffer *&indices) {
+  vertices = nullptr;
+  indices = nullptr;
+  if (!engine || mesh.vertices.empty() || mesh.indices.empty() || !loadVertexColorMaterial()) {
+    return utils::Entity();
+  }
+  const size_t vertexBytes = mesh.vertices.size() * sizeof(ARVertex);
+  const size_t indexBytes = mesh.indices.size() * sizeof(uint16_t);
+  // Filament uploads asynchronously: hand it copies that it frees when done.
+  void *vertexData = std::malloc(vertexBytes);
+  void *indexData = std::malloc(indexBytes);
+  std::memcpy(vertexData, mesh.vertices.data(), vertexBytes);
+  std::memcpy(indexData, mesh.indices.data(), indexBytes);
+  auto release = [](void *buffer, size_t, void *) { std::free(buffer); };
+
+  vertices = VertexBuffer::Builder()
+                 .vertexCount(static_cast<uint32_t>(mesh.vertices.size()))
+                 .bufferCount(1)
+                 .attribute(VertexAttribute::POSITION, 0, VertexBuffer::AttributeType::FLOAT3,
+                            offsetof(ARVertex, position), sizeof(ARVertex))
+                 .attribute(VertexAttribute::COLOR, 0, VertexBuffer::AttributeType::FLOAT4,
+                            offsetof(ARVertex, color), sizeof(ARVertex))
+                 .build(*engine);
+  vertices->setBufferAt(*engine, 0, VertexBuffer::BufferDescriptor(vertexData, vertexBytes, release));
+  indices = IndexBuffer::Builder()
+                .indexCount(static_cast<uint32_t>(mesh.indices.size()))
+                .bufferType(IndexBuffer::IndexType::USHORT)
+                .build(*engine);
+  indices->setBuffer(*engine, IndexBuffer::BufferDescriptor(indexData, indexBytes, release));
+
+  math::float3 lo = {1e30f, 1e30f, 1e30f}, hi = {-1e30f, -1e30f, -1e30f};
+  for (const ARVertex &v : mesh.vertices) {
+    for (int i = 0; i < 3; ++i) {
+      lo[i] = std::min(lo[i], v.position[i]);
+      hi[i] = std::max(hi[i], v.position[i]);
+    }
+  }
+  utils::Entity entity = utils::EntityManager::get().create();
+  RenderableManager::Builder(1)
+      .boundingBox({lo, hi})
+      .material(0, vertexColorInstance)
+      .geometry(0, RenderableManager::PrimitiveType::TRIANGLES, vertices, indices)
+      .culling(false)
+      .receiveShadows(false)
+      .castShadows(false)
+      .build(*engine, entity);
+  scene->addEntity(entity);
+  return entity;
+}
+
+FilamentRenderer::Mesh *FilamentRenderer::findMesh(int id) {
+  return id >= 0 && id < static_cast<int>(meshes.size()) && meshes[id].alive ? &meshes[id]
+                                                                             : nullptr;
+}
+
+int FilamentRenderer::addMesh(const ARMesh &mesh) {
+  Mesh m;
+  m.entity = createVertexColorRenderable(mesh, m.vertices, m.indices);
+  if (m.entity.isNull()) return -1;
+  engine->getTransformManager().create(m.entity); // identity, until setMeshTransform()
+  m.alive = true;
+  meshes.push_back(m);
+  return static_cast<int>(meshes.size()) - 1;
+}
+
+void FilamentRenderer::setMeshTransform(int id, const float transform[16]) {
+  Mesh *m = findMesh(id);
+  if (!m) return;
+  math::mat4f matrix;
+  for (int c = 0; c < 4; ++c) {
+    for (int r = 0; r < 4; ++r) matrix[c][r] = transform[c * 4 + r];
+  }
+  auto &tcm = engine->getTransformManager();
+  tcm.setTransform(tcm.getInstance(m->entity), matrix);
+}
+
+void FilamentRenderer::setMeshVisible(int id, bool visible) {
+  Mesh *m = findMesh(id);
+  if (!m || m->visible == visible) return;
+  if (visible) {
+    scene->addEntity(m->entity);
+  } else {
+    scene->remove(m->entity);
+  }
+  m->visible = visible;
+}
+
+void FilamentRenderer::removeMesh(int id) {
+  if (Mesh *m = findMesh(id)) destroyMesh(*m);
+}
+
+void FilamentRenderer::destroyMesh(Mesh &mesh) {
+  if (!mesh.alive) return;
+  scene->remove(mesh.entity);
+  engine->destroy(mesh.entity); // the renderable component
+  auto &tcm = engine->getTransformManager();
+  if (tcm.hasComponent(mesh.entity)) tcm.destroy(mesh.entity);
+  utils::EntityManager::get().destroy(mesh.entity);
+  engine->destroy(mesh.vertices);
+  engine->destroy(mesh.indices);
+  mesh = Mesh(); // not alive; the id is not reused
 }
 
 void FilamentRenderer::updateVideoTexture() {

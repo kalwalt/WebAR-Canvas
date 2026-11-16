@@ -133,10 +133,74 @@ EMSCRIPTEN_KEEPALIVE int webar_place_model(int handle, int markerIndex, float si
 }
 }
 
+// --- Meshes: the backend-neutral API (#13) ---
+
+int ARBaseApp::addMesh(const ARMesh &mesh) {
+  return meshRenderer ? meshRenderer->addMesh(mesh) : -1;
+}
+
+int ARBaseApp::addBox(float sizeX, float sizeY, float sizeZ, const float faceColors[6][4]) {
+  return addMesh(makeBox(sizeX, sizeY, sizeZ, faceColors));
+}
+
+int ARBaseApp::addCube(float size, const float color[4]) {
+  float faces[6][4];
+  for (auto &face : faces) {
+    for (int i = 0; i < 4; ++i) face[i] = color[i];
+  }
+  return addBox(size, size, size, faces);
+}
+
+int ARBaseApp::addPlane(float sizeX, float sizeY, const float color[4]) {
+  return addMesh(makePlane(sizeX, sizeY, color));
+}
+
+int ARBaseApp::addSphere(float radius, const float color[4], int segments, int rings) {
+  return addMesh(makeSphere(radius, segments, rings, color));
+}
+
+void ARBaseApp::attachMeshToMarker(int id, int markerIndex, ARAnchorOptions options) {
+  if (id >= 0) meshAnchors.attach(id, markerIndex, options);
+}
+
+void ARBaseApp::setMeshLocalTransform(int id, const float transform[16]) {
+  if (id >= 0) meshAnchors.setLocal(id, transform);
+}
+
+void ARBaseApp::setMeshVisible(int id, bool visible) {
+  if (meshRenderer) meshRenderer->setMeshVisible(id, visible);
+}
+
+void ARBaseApp::removeMesh(int id) {
+  if (id < 0) return;
+  meshAnchors.remove(id);
+  if (meshRenderer) meshRenderer->removeMesh(id);
+}
+
+void ARBaseApp::beforeUpdate() {
+  if (meshRenderer) {
+    meshAnchors.update(
+        isNewCameraFrame(),
+        [this](int markerIndex, float pose[16], float &centerX, float &centerY) {
+          const bool tracked = getMarkerPose(markerIndex, pose);
+          if (tracked) {
+            const NFTMarkerData marker = getNFTTracker()->getMarkerData(markerIndex);
+            markerCenterMm(marker.width, marker.height, marker.dpi, centerX, centerY);
+          }
+          return tracked;
+        },
+        [this](int id, const float world[16]) { meshRenderer->setMeshTransform(id, world); });
+  }
+#ifdef WEBAR_RENDERER_FILAMENT
+  updateEntityAnchors();
+#endif
+}
+
 #ifdef WEBAR_RENDERER_FILAMENT
 std::unique_ptr<IARRenderer> ARBaseApp::createRenderer() {
   auto backend = std::make_unique<FilamentRenderer>();
   filamentBackend = backend.get();
+  meshRenderer = backend.get();
   return backend;
 }
 
@@ -162,7 +226,7 @@ void ARBaseApp::detachFromMarker(utils::Entity entity) {
                        markerBindings.end());
 }
 
-void ARBaseApp::beforeUpdate() {
+void ARBaseApp::updateEntityAnchors() {
   filament::Engine *engine = getEngine();
   if (!engine || markerBindings.empty()) return;
   auto &tcm = engine->getTransformManager();
@@ -195,69 +259,12 @@ void ARBaseApp::beforeUpdate() {
 }
 
 utils::Entity ARBaseApp::createMeshEntity(const ARMesh &mesh) {
-  filament::Engine *engine = getEngine();
-  if (!engine || mesh.vertices.empty() || mesh.indices.empty()) return utils::Entity();
-
-  // The unlit vertex-colour material of the demo cube, loaded once.
-  if (!vertexColorMaterial) {
-    std::ifstream is("/assets/ar_cube.fil", std::ios::binary);
-    if (!is) {
-      printf("ERROR: Failed to open /assets/ar_cube.fil for the primitive helpers\n");
-      return utils::Entity();
-    }
-    std::vector<char> package((std::istreambuf_iterator<char>(is)),
-                              std::istreambuf_iterator<char>());
-    vertexColorMaterial =
-        filament::Material::Builder().package(package.data(), package.size()).build(*engine);
-    vertexColorInstance = vertexColorMaterial->createInstance();
-  }
-
-  using filament::VertexBuffer;
-  using filament::IndexBuffer;
-  const size_t vertexBytes = mesh.vertices.size() * sizeof(ARVertex);
-  const size_t indexBytes = mesh.indices.size() * sizeof(uint16_t);
-  // Filament uploads asynchronously: hand it copies that it frees when done.
-  void *vertexData = std::malloc(vertexBytes);
-  void *indexData = std::malloc(indexBytes);
-  std::memcpy(vertexData, mesh.vertices.data(), vertexBytes);
-  std::memcpy(indexData, mesh.indices.data(), indexBytes);
-  auto release = [](void *buffer, size_t, void *) { std::free(buffer); };
-
-  VertexBuffer *vb = VertexBuffer::Builder()
-                         .vertexCount(static_cast<uint32_t>(mesh.vertices.size()))
-                         .bufferCount(1)
-                         .attribute(filament::VertexAttribute::POSITION, 0,
-                                    VertexBuffer::AttributeType::FLOAT3,
-                                    offsetof(ARVertex, position), sizeof(ARVertex))
-                         .attribute(filament::VertexAttribute::COLOR, 0,
-                                    VertexBuffer::AttributeType::FLOAT4,
-                                    offsetof(ARVertex, color), sizeof(ARVertex))
-                         .build(*engine);
-  vb->setBufferAt(*engine, 0, VertexBuffer::BufferDescriptor(vertexData, vertexBytes, release));
-  IndexBuffer *ib = IndexBuffer::Builder()
-                        .indexCount(static_cast<uint32_t>(mesh.indices.size()))
-                        .bufferType(IndexBuffer::IndexType::USHORT)
-                        .build(*engine);
-  ib->setBuffer(*engine, IndexBuffer::BufferDescriptor(indexData, indexBytes, release));
-
-  filament::math::float3 lo = {1e30f, 1e30f, 1e30f}, hi = {-1e30f, -1e30f, -1e30f};
-  for (const ARVertex &v : mesh.vertices) {
-    for (int i = 0; i < 3; ++i) {
-      lo[i] = std::min(lo[i], v.position[i]);
-      hi[i] = std::max(hi[i], v.position[i]);
-    }
-  }
-  utils::Entity entity = utils::EntityManager::get().create();
-  filament::RenderableManager::Builder(1)
-      .boundingBox({lo, hi})
-      .material(0, vertexColorInstance)
-      .geometry(0, filament::RenderableManager::PrimitiveType::TRIANGLES, vb, ib)
-      .culling(false)
-      .receiveShadows(false)
-      .castShadows(false)
-      .build(*engine, entity);
-  getScene()->addEntity(entity);
-  ownedMeshes.push_back({entity, vb, ib});
+  if (!filamentBackend) return utils::Entity();
+  filament::VertexBuffer *vb = nullptr;
+  filament::IndexBuffer *ib = nullptr;
+  // The renderer owns the shared vertex-colour material; ARBaseApp owns these entities.
+  const utils::Entity entity = filamentBackend->createVertexColorRenderable(mesh, vb, ib);
+  if (!entity.isNull()) ownedMeshes.push_back({entity, vb, ib});
   return entity;
 }
 
@@ -363,12 +370,13 @@ ARBaseApp::~ARBaseApp() {
     engine->destroy(mesh.vertices);
     engine->destroy(mesh.indices);
   }
-  if (vertexColorInstance) engine->destroy(vertexColorInstance);
-  if (vertexColorMaterial) engine->destroy(vertexColorMaterial);
+  // The shared vertex-colour material is the renderer's: released after this, with it.
 }
 #elif defined(WEBAR_RENDERER_SOKOL)
 std::unique_ptr<IARRenderer> ARBaseApp::createRenderer() {
-  return std::make_unique<SokolRenderer>();
+  auto backend = std::make_unique<SokolRenderer>();
+  meshRenderer = backend.get();
+  return backend;
 }
 
 ARBaseApp::~ARBaseApp() {
