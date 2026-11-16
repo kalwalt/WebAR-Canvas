@@ -164,7 +164,12 @@ void ARBaseApp::attachMeshToMarker(int id, int markerIndex, ARAnchorOptions opti
 }
 
 void ARBaseApp::setMeshLocalTransform(int id, const float transform[16]) {
-  if (id >= 0) meshAnchors.setLocal(id, transform);
+  if (id < 0) return;
+  meshAnchors.setLocal(id, transform);
+  // Applied now, so a change made in update() is drawn in this frame (beforeUpdate() ran
+  // before update()).
+  float world[16];
+  if (meshRenderer && meshAnchors.world(id, world)) meshRenderer->setMeshTransform(id, world);
 }
 
 void ARBaseApp::setMeshVisible(int id, bool visible) {

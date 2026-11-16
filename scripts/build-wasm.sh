@@ -8,7 +8,8 @@
 #
 # Usage: [WEBAR_RENDERER=filament|sokol] [BUILD_DIR=dir] scripts/build-wasm.sh [jobs] [target]
 #   WEBAR_RENDERER  the rendering backend (default: filament)
-#   BUILD_DIR       the build directory (default: build-wasm/ in the repository)
+#   BUILD_DIR       the build directory, relative to the repository unless absolute
+#                   (default: build-wasm/, or build-wasm-<renderer>/ for another renderer)
 #   target          WebAR-Canvas by default
 set -eu
 
@@ -16,7 +17,15 @@ root=$(cd "$(dirname "$0")/.." && pwd)
 jobs=${1:-$(nproc)}
 target=${2:-WebAR-Canvas}
 renderer=${WEBAR_RENDERER:-filament}
-build_dir=${BUILD_DIR:-$root/build-wasm}
+if [ "$renderer" = "filament" ]; then
+  build_dir=${BUILD_DIR:-build-wasm}
+else
+  build_dir=${BUILD_DIR:-build-wasm-$renderer}
+fi
+case "$build_dir" in
+  /*) ;;
+  *) build_dir="$root/$build_dir" ;;
+esac
 
 generator="Unix Makefiles"
 if command -v ninja >/dev/null 2>&1; then

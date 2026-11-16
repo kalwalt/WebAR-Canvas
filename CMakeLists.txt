@@ -192,7 +192,7 @@ add_dependencies(${PROJECT_NAME} ARNFTTracker)
 option(WEBAR_CANVAS_GLTF "Load glTF models with Filament's gltfio (ARBaseApp::loadModel)" ON)
 if(WEBAR_CANVAS_GLTF AND NOT WEBAR_RENDERER STREQUAL "filament")
     message(STATUS "WEBAR_CANVAS_GLTF is ignored with WEBAR_RENDERER=${WEBAR_RENDERER}: glTF needs Filament's gltfio")
-    set(WEBAR_CANVAS_GLTF OFF CACHE BOOL "" FORCE)
+    set(WEBAR_CANVAS_GLTF OFF) # this configuration only: the cached option keeps its value
 endif()
 if(WEBAR_CANVAS_GLTF)
     target_sources(${PROJECT_NAME} PRIVATE src/core/ARModel.cpp)

@@ -106,6 +106,7 @@ bool SokolRenderer::init(const char *canvasSelector, int w, int h) {
 
   sg_desc desc = {};
   desc.logger.func = slog_func;
+  desc.buffer_pool_size = 1024; // 2 buffers per mesh (sokol's default pool holds 128)
   desc.environment.defaults.color_format = SG_PIXELFORMAT_RGBA8;
   desc.environment.defaults.depth_format = SG_PIXELFORMAT_DEPTH;
   desc.environment.defaults.sample_count = 1;
@@ -251,6 +252,14 @@ int SokolRenderer::addMesh(const ARMesh &mesh) {
   indices.label = "mesh-indices";
   m.indices = sg_make_buffer(&indices);
   m.indexCount = static_cast<int>(mesh.indices.size());
+  if (sg_query_buffer_state(m.vertices) != SG_RESOURCESTATE_VALID ||
+      sg_query_buffer_state(m.indices) != SG_RESOURCESTATE_VALID) {
+    // e.g. sokol's buffer pool is full (sg_desc.buffer_pool_size, 2 buffers per mesh)
+    sg_destroy_buffer(m.vertices);
+    sg_destroy_buffer(m.indices);
+    printf("ERROR: sokol could not create the mesh buffers\n");
+    return -1;
+  }
   m.alive = true;
   meshes.push_back(m);
   return static_cast<int>(meshes.size()) - 1;

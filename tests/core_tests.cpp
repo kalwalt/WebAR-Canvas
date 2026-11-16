@@ -340,6 +340,24 @@ static void mesh_rebind_and_detach() {
   CHECK(poses.reads == 1 && near(applied.world[0][12], 0.0f) && near(applied.world[0][15], 1.0f));
 }
 
+static void mesh_world_now_uses_the_new_local() {
+  // setMeshLocalTransform() in update() must reach this frame's render: world() composes the
+  // last anchor with the new local transform, without reading the pose again.
+  ARMeshAnchors meshes;
+  meshes.attach(0, 0);
+  FakePoses poses;
+  poses.centerX = 10.0f;
+  Applied applied;
+  meshes.update(true, poses, applied);
+  float local[16];
+  translation(local, 0.0f, 0.0f, 5.0f);
+  meshes.setLocal(0, local);
+  float world[16];
+  CHECK(meshes.world(0, world));
+  CHECK(near(world[12], 10.0f) && near(world[14], 5.0f) && poses.reads == 1);
+  CHECK(!meshes.world(3, world)); // unknown id
+}
+
 static void mesh_remove_forgets() {
   ARMeshAnchors meshes;
   meshes.attach(2, 0);
@@ -458,6 +476,7 @@ static const TestCase kTests[] = {
     {"mesh_hidden_while_lost", mesh_hidden_while_lost},
     {"mesh_pose_read_once_per_camera_frame", mesh_pose_read_once_per_camera_frame},
     {"mesh_rebind_and_detach", mesh_rebind_and_detach},
+    {"mesh_world_now_uses_the_new_local", mesh_world_now_uses_the_new_local},
     {"mesh_remove_forgets", mesh_remove_forgets},
     {"box_counts", box_counts},
     {"plane_counts", plane_counts},

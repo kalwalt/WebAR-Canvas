@@ -16,7 +16,9 @@
  *   - bound and lost: all zeros (nothing is drawn, as Filament's scale-0 transform);
  *   - not bound: local.
  * A bound mesh reads its marker's pose only on a new camera frame (and on the first update
- * after binding), so smoothing does not depend on the display's frame rate.
+ * after binding), so smoothing does not depend on the display's frame rate. world() gives the
+ * current matrix at any time (e.g. right after setLocal(), so a change made in update() is
+ * drawn in the same frame).
  */
 class ARMeshAnchors {
 public:
@@ -44,6 +46,21 @@ public:
     if (Entry *e = find(id)) *e = Entry();
   }
 
+  // The mesh's world matrix from its last anchor and its current local transform, without
+  // reading a pose. False for an unknown id.
+  bool world(int id, float out[16]) const {
+    if (id < 0 || id >= static_cast<int>(entries.size()) || !entries[id].known) return false;
+    const Entry &e = entries[id];
+    if (!e.bound) {
+      for (int i = 0; i < 16; ++i) out[i] = e.local[i];
+    } else if (e.updated && e.anchor.visible()) {
+      multiply(e.anchored, e.local, out);
+    } else {
+      for (int i = 0; i < 16; ++i) out[i] = 0.0f; // lost, or no pose read yet
+    }
+    return true;
+  }
+
   // getPose(markerIndex, float pose[16], float &centerX, float &centerY) -> bool tracked;
   // apply(id, const float world[16]) is called for every known mesh.
   template <class PoseFn, class ApplyFn>
@@ -51,24 +68,16 @@ public:
     for (int id = 0; id < static_cast<int>(entries.size()); ++id) {
       Entry &e = entries[id];
       if (!e.known) continue;
-      float world[16];
-      if (e.bound) {
-        if (newCameraFrame || !e.updated) {
-          float pose[16];
-          float centerX = 0.0f, centerY = 0.0f;
-          const bool tracked = getPose(e.markerIndex, pose, centerX, centerY);
-          e.anchor.update(tracked, pose, centerX, centerY, e.anchored);
-          e.updated = true;
-        }
-        if (e.anchor.visible()) {
-          multiply(e.anchored, e.local, world);
-        } else {
-          for (float &v : world) v = 0.0f;
-        }
-      } else {
-        for (int i = 0; i < 16; ++i) world[i] = e.local[i];
+      if (e.bound && (newCameraFrame || !e.updated)) {
+        float pose[16];
+        float centerX = 0.0f, centerY = 0.0f;
+        const bool tracked = getPose(e.markerIndex, pose, centerX, centerY);
+        e.anchor.update(tracked, pose, centerX, centerY, e.anchored);
+        e.updated = true;
       }
-      apply(id, world);
+      float matrix[16];
+      world(id, matrix);
+      apply(id, matrix);
     }
   }
 
