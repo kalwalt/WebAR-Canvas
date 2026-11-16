@@ -111,6 +111,7 @@ set(SOURCES
     src/core/ARBaseEngine.cpp
     src/core/ARBaseApp.cpp
     src/core/ARInput.cpp
+    src/core/ARVideoTexture.cpp
 )
 add_executable(${PROJECT_NAME} ${SOURCES})
 
