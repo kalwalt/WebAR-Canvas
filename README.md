@@ -248,6 +248,8 @@ var Module = { webarConfig: { markers: ['/assets/markers/pinball'], videoWidth: 
 
 The default shell (`src/shell.html`) already declares `var Module = { ... }`: add `webarConfig` to that object rather than declaring a second `Module`.
 
+To start your own project from this repository and publish it on GitHub Pages, see [Using WebAR-Canvas as a template](docs/template.md).
+
 ---
 
 ## 🌿 Git & Contribution Guidelines

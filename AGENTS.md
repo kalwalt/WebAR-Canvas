@@ -117,6 +117,8 @@ node build-docker.js --test
 
 The Emscripten cache lives in the `webar-canvas-emcache-4.0.17` Docker volume, so the libjpeg and zlib ports are downloaded once.
 
+GitHub Pages: `.github/workflows/pages.yml` builds the app with the same scripts and deploys it, on the default branch only. The repository is a GitHub template; `docs/template.md` explains how to start a project from it and the Pages settings.
+
 Keep `*.sh` files with LF line endings (`.gitattributes`): they run in Linux containers.
 
 Before starting Docker, `build-docker.js` stops with a clear message when a submodule is not checked out (`third_party/filament`, `third_party/WebARKitLib`) or the Docker daemon does not answer. Its tests: `node --test scripts/build-docker.test.js` (no Docker needed; also run in CI).

@@ -13,6 +13,7 @@ Read it before making changes — it is the canonical source and this file is a 
 - **Build runner tests**: `node --test scripts/build-docker.test.js` (checks before Docker starts; no Docker needed)
 - **Writing an app**: derive from `ARBaseApp` (hooks, marker events, input, `attachToMarker`, `create*` primitives, `loadModel` for glTF, `AR_APP_MAIN` over `ARAppConfig`); the demo is `src/app/App.cpp`. See AGENTS.md section 2C
 - **Serve & Test**: `python -m http.server 8000 --directory build-wasm` (open `http://localhost:8000/videoTest.html`)
+- **Template & Pages**: start a project with **Use this template** and publish it with `.github/workflows/pages.yml`; see `docs/template.md`
 
 ## Key Rules to Remember
 
