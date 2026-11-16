@@ -68,6 +68,7 @@ public:
   utils::Entity getModelEntity(int handle) const;
   // Stands the model on marker markerIndex's centre: glTF +Y up becomes the marker's +Z, and the
   // largest extent of its bounding box becomes sizeMm. Hidden while the marker is lost.
+  // False for an unknown handle or marker.
   bool placeModelOnMarker(int handle, int markerIndex, float sizeMm);
   // Adds the model to the scene, or removes it.
   void setModelVisible(int handle, bool visible);
@@ -128,6 +129,7 @@ private:
     utils::Entity entity;
     int markerIndex;
     ARAnchor anchor;
+    bool updated = false; // false until the first update after binding
   };
   struct OwnedMesh {
     utils::Entity entity;

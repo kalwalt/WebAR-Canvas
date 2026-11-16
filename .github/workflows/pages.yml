@@ -16,9 +16,11 @@ on:
 permissions:
   contents: read
 
-# One deployment at a time; a running deployment is not cancelled by a newer one.
+# One run at a time per branch; a running deployment is not cancelled by a newer one. The group
+# includes the branch, so pushes to other branches (whose jobs are skipped) never queue behind,
+# or replace, a pending deployment.
 concurrency:
-  group: pages
+  group: pages-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:

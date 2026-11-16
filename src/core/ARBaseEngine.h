@@ -55,6 +55,8 @@ protected:
   // Marker markerIndex's model-view matrix (column-major) on the last processed camera frame.
   // False, and zeros in out, when the marker is not tracked or does not exist.
   bool getMarkerPose(int markerIndex, float out[16]) const;
+  // True on a tick that captured and tracked a new camera frame (poses change only then).
+  bool isNewCameraFrame() const { return frameCaptured; }
 
   // Internal step just before update() every tick (ARBaseApp applies the marker anchors here).
   virtual void beforeUpdate() {}

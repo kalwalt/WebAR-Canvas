@@ -208,6 +208,18 @@ static void client_to_canvas_css_scale() {
   CHECK(near(x, 320.0f) && near(y, 240.0f));
 }
 
+static void client_to_canvas_clamped_on_bars() {
+  // Up events are delivered even off the image: the point is clamped to its edge.
+  float x = -1.0f, y = -1.0f;
+  CHECK(clientToCanvasClamped(100.0, 240.0, 0.0, 0.0, 1280.0, 480.0, 640, 480, x, y));
+  CHECK(near(x, 0.0f) && near(y, 240.0f)); // left bar
+  CHECK(clientToCanvasClamped(2000.0, -50.0, 0.0, 0.0, 1280.0, 480.0, 640, 480, x, y));
+  CHECK(near(x, 640.0f) && near(y, 0.0f)); // outside the element
+  CHECK(clientToCanvasClamped(640.0, 240.0, 0.0, 0.0, 1280.0, 480.0, 640, 480, x, y));
+  CHECK(near(x, 320.0f) && near(y, 240.0f)); // inside: same as clientToCanvas
+  CHECK(!clientToCanvasClamped(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 640, 480, x, y)); // no size yet
+}
+
 // --- ARPrimitives: geometry for createBox / createPlane / createSphere ---
 
 static const float kColors[6][4] = {{1, 0, 0, 1}, {0, 1, 1, 1}, {1, 1, 0, 1},
@@ -268,6 +280,13 @@ static void sphere_minimum_segments() {
   CHECK(small.indices.size() == minimum.indices.size());
 }
 
+static void sphere_fits_16_bit_indices() {
+  const float color[4] = {1, 1, 1, 1};
+  const ARMesh big = makeSphere(1.0f, 400, 400, color);
+  CHECK(big.vertices.size() <= 65536);
+  CHECK(indicesInRange(big));
+}
+
 static void primitive_indices_in_range() {
   const float color[4] = {1, 1, 1, 1};
   CHECK(indicesInRange(makeBox(1.0f, 1.0f, 1.0f, kColors)));
@@ -302,11 +321,13 @@ static const TestCase kTests[] = {
     {"client_to_canvas_corners", client_to_canvas_corners},
     {"client_to_canvas_with_offset", client_to_canvas_with_offset},
     {"client_to_canvas_css_scale", client_to_canvas_css_scale},
+    {"client_to_canvas_clamped_on_bars", client_to_canvas_clamped_on_bars},
     {"box_counts", box_counts},
     {"plane_counts", plane_counts},
     {"sphere_counts_and_radius", sphere_counts_and_radius},
     {"sphere_minimum_segments", sphere_minimum_segments},
     {"primitive_indices_in_range", primitive_indices_in_range},
+    {"sphere_fits_16_bit_indices", sphere_fits_16_bit_indices},
 };
 
 int main() {

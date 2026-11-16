@@ -69,6 +69,9 @@ inline ARMesh makePlane(float sizeX, float sizeY, const float color[4]) {
 inline ARMesh makeSphere(float radius, int segments, int rings, const float color[4]) {
   segments = segments < 3 ? 3 : segments;
   rings = rings < 2 ? 2 : rings;
+  // 16-bit indices: at most 256 x 256 vertices ((segments + 1) * (rings + 1) <= 65536).
+  segments = segments > 255 ? 255 : segments;
+  rings = rings > 255 ? 255 : rings;
   const float pi = 3.14159265358979f;
   ARMesh mesh;
   for (int r = 0; r <= rings; ++r) {

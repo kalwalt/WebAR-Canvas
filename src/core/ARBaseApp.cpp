@@ -164,7 +164,12 @@ void ARBaseApp::beforeUpdate() {
   filament::Engine *engine = getEngine();
   if (!engine || markerBindings.empty()) return;
   auto &tcm = engine->getTransformManager();
+  const bool newFrame = isNewCameraFrame();
   for (MarkerBinding &binding : markerBindings) {
+    // Poses change only on a new camera frame: keep the transform until then, so smoothing
+    // does not depend on the display's frame rate.
+    if (!newFrame && binding.updated) continue;
+    binding.updated = true;
     float pose[16], anchored[16];
     const bool tracked = getMarkerPose(binding.markerIndex, pose);
     float centerX = 0.0f, centerY = 0.0f;
@@ -292,6 +297,9 @@ bool ARBaseApp::placeModelOnMarker(int handle, int markerIndex, float sizeMm) {
   const utils::Entity root = models->root(handle);
   float lo[3], hi[3];
   if (root.isNull() || !models->bounds(handle, lo, hi)) return false;
+  if (markerIndex < 0 || !getNFTTracker() || markerIndex >= getNFTTracker()->getMarkerCount()) {
+    return false; // no such marker
+  }
   const float extent = std::max({hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]});
   const float s = extent > 0.0f ? sizeMm / extent : 1.0f;
 
@@ -332,6 +340,7 @@ void ARBaseApp::setModelVisible(int handle, bool visible) {
 }
 
 ARBaseApp::~ARBaseApp() {
+  if (gCurrentApp == this) gCurrentApp = nullptr; // webar_* calls after this find no app
   filament::Engine *engine = getEngine();
   if (!engine) return;
   auto &tcm = engine->getTransformManager();

@@ -31,4 +31,28 @@ inline bool clientToCanvas(double clientX, double clientY, double rectLeft, doub
   return true;
 }
 
+/**
+ * The same mapping, clamped to the image's edges (0..canvasWidth, 0..canvasHeight) instead of
+ * rejecting points on a bar or outside the element: for up events, which must reach the app
+ * even when a finger or the mouse is released off the image. False only while the element or
+ * the canvas has no size.
+ */
+inline bool clientToCanvasClamped(double clientX, double clientY, double rectLeft,
+                                  double rectTop, double rectWidth, double rectHeight,
+                                  int canvasWidth, int canvasHeight, float &x, float &y) {
+  if (rectWidth <= 0.0 || rectHeight <= 0.0 || canvasWidth <= 0 || canvasHeight <= 0) {
+    return false;
+  }
+  const double scaleX = rectWidth / canvasWidth;
+  const double scaleY = rectHeight / canvasHeight;
+  const double scale = scaleX < scaleY ? scaleX : scaleY;
+  double px = (clientX - rectLeft - (rectWidth - canvasWidth * scale) * 0.5) / scale;
+  double py = (clientY - rectTop - (rectHeight - canvasHeight * scale) * 0.5) / scale;
+  px = px < 0.0 ? 0.0 : (px > canvasWidth ? canvasWidth : px);
+  py = py < 0.0 ? 0.0 : (py > canvasHeight ? canvasHeight : py);
+  x = static_cast<float>(px);
+  y = static_cast<float>(py);
+  return true;
+}
+
 #endif // AR_INPUT_H
