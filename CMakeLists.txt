@@ -222,7 +222,8 @@ if(WEBAR_CANVAS_BUILD_TESTS)
         "--embed-file=${WEBARKITLIB_DIR}/tests/data@/data"
     )
 
-    # Pure C++ parts of the framework core (src/core/AREvents.h, ARAppConfig.h, ARAnchor.h, ARInput.h): no Filament, no tracker.
+    # Pure C++ parts of the framework core (src/core/AREvents.h, ARAppConfig.h, ARAnchor.h, ARInput.h,
+    # ARMeshAnchors.h, ARPrimitives.h): no renderer, no tracker.
     add_executable(core_tests tests/core_tests.cpp)
     target_include_directories(core_tests PRIVATE src/)
     set_target_properties(core_tests PROPERTIES SUFFIX ".js")

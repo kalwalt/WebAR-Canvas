@@ -150,3 +150,6 @@ build-wasm-sokol
 cmake-build-debug
 .idea/
 .vscode/
+
+# Claude Code: personal, machine-specific notes (AGENTS.md section 7)
+CLAUDE.local.md
