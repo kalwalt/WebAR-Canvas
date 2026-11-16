@@ -6,6 +6,7 @@
 #include <utils/Entity.h>
 
 #include <cstdint>
+#include <vector>
 
 namespace filament {
 class Camera;
@@ -47,8 +48,30 @@ public:
   filament::Camera *getCamera() const { return camera; }
   filament::View *getView() const { return view; }
 
+  int addMesh(const ARMesh &mesh) override;
+  void setMeshTransform(int id, const float transform[16]) override;
+  void setMeshVisible(int id, bool visible) override;
+  void removeMesh(int id) override;
+
+  // A renderable entity for mesh with the unlit vertex-colour material (ar_cube.mat), added to
+  // the scene, and its buffers in vertices / indices: the caller destroys all three. Shared by
+  // addMesh() and ARBaseApp's Filament-only createBox & co. Invalid entity on failure.
+  utils::Entity createVertexColorRenderable(const ARMesh &mesh, filament::VertexBuffer *&vertices,
+                                            filament::IndexBuffer *&indices);
+
 private:
   void createVideoBackground(int width, int height);
+  bool loadVertexColorMaterial();
+
+  struct Mesh {
+    bool alive = false;
+    bool visible = true;
+    utils::Entity entity;
+    filament::VertexBuffer *vertices = nullptr;
+    filament::IndexBuffer *indices = nullptr;
+  };
+  Mesh *findMesh(int id);
+  void destroyMesh(Mesh &mesh);
 
   filament::backend::Platform *platform = nullptr;
   filament::Engine *engine = nullptr;
@@ -66,6 +89,12 @@ private:
   filament::Texture *videoTexture = nullptr;
   uint32_t nativeTextureId = 0;
   utils::Entity videoQuad;
+
+  // Meshes: the backend-neutral API (by id) and the vertex-colour material they share with
+  // ARBaseApp's createBox & co.
+  std::vector<Mesh> meshes;
+  filament::Material *vertexColorMaterial = nullptr;
+  filament::MaterialInstance *vertexColorInstance = nullptr;
 };
 
 #endif // FILAMENT_RENDERER_H

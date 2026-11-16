@@ -1,28 +1,11 @@
 #include "app/App.h"
-#include <filament/Engine.h>
-#include <filament/TransformManager.h>
-#include <math/mat4.h>
-#include <utils/EntityManager.h>
+
+#include <cmath>
 #include <cstdio>
 #include <iostream>
 
-using namespace filament;
-
-App::~App() {
-    // The cube is released by ARBaseApp (createBox); the anchor entity is the app's.
-    Engine *engine = getEngine();
-    if (engine) {
-        auto &tcm = engine->getTransformManager();
-        detachFromMarker(anchorEntity);
-        if (tcm.hasComponent(anchorEntity)) {
-            tcm.destroy(anchorEntity);
-        }
-        utils::EntityManager::get().destroy(anchorEntity);
-    }
-}
-
 void App::setup() {
-    std::cout << "Setup Filament Scene with 3D AR Cube..." << std::endl;
+    std::cout << "Setup the AR scene with a 3D cube..." << std::endl;
 
     // An 80 mm cube standing on the marker, one colour per face.
     const float faceColors[6][4] = {
@@ -33,50 +16,46 @@ void App::setup() {
         {1.0f, 0.2f, 1.0f, 1.0f}, // -Y: magenta
         {0.2f, 1.0f, 0.2f, 1.0f}, // +Y: green
     };
-    cubeEntity = createBox(80.0f, 80.0f, 80.0f, faceColors);
-    if (cubeEntity.isNull()) {
+    cube = addBox(80.0f, 80.0f, 80.0f, faceColors);
+    if (cube < 0) {
         printf("ERROR: the AR cube could not be created\n");
         return;
     }
-
-    // The cube spins under an anchor bound to marker 0 (centred on it, hidden while lost).
-    // create() only if missing, then setParent(): see the parenting note in AGENTS.md.
-    auto &tcm = getEngine()->getTransformManager();
-    anchorEntity = utils::EntityManager::get().create();
-    attachToMarker(anchorEntity, 0);
-    if (!tcm.hasComponent(cubeEntity)) tcm.create(cubeEntity);
-    tcm.setParent(tcm.getInstance(cubeEntity), tcm.getInstance(anchorEntity));
-
+    // Centred on marker 0, hidden while it is lost; update() spins it about the marker's z.
+    attachMeshToMarker(cube, 0);
     printf("AR 3D Cube added to scene successfully!\n");
 
     // A glTF model on the same marker, 80 mm, hidden until a tap or click (see toggleModel).
+    // Filament only: with sokol, loadModel() returns AR_MODEL_UNSUPPORTED (-3).
     modelHandle = loadModel("/assets/models/AnimatedMorphCube.glb");
+#ifdef WEBAR_RENDERER_FILAMENT
     if (modelHandle >= 0) {
         placeModelOnMarker(modelHandle, 0, 80.0f);
         setModelVisible(modelHandle, false);
-    } else {
-        printf("No glTF model (loadModel returned %d)\n", modelHandle);
     }
+#endif
+    if (modelHandle < 0) printf("No glTF model (loadModel returned %d)\n", modelHandle);
 }
 
 void App::toggleModel() {
     if (modelHandle < 0) return;
     showModel = !showModel;
+#ifdef WEBAR_RENDERER_FILAMENT
     setModelVisible(modelHandle, showModel);
+#endif
+    setMeshVisible(cube, !showModel);
     printf("showing the %s\n", showModel ? "glTF model" : "cube");
 }
 
 void App::update(float deltaTime) {
-    auto &tcm = getEngine()->getTransformManager();
-    auto inst = tcm.getInstance(cubeEntity);
-    if (!inst.isValid() || !isTracking) return;
+    if (cube < 0 || !isTracking) return;
 
-    // Slowly spin the cube around its Z axis for dynamic AR feedback (the anchor places it);
-    // scale it to 0 while the glTF model is shown instead.
-    static float spinAngle = 0.0f;
+    // Slowly spin the cube around the marker's z axis for dynamic AR feedback (the anchor
+    // places it): a local transform, applied after the marker's pose.
     spinAngle += deltaTime * 1.5f;
-    tcm.setTransform(inst, showModel ? math::mat4f::scaling(0.0f)
-                                     : math::mat4f::rotation(spinAngle, math::float3{0.0f, 0.0f, 1.0f}));
+    const float c = std::cos(spinAngle), s = std::sin(spinAngle);
+    const float spin[16] = {c, s, 0, 0, -s, c, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+    setMeshLocalTransform(cube, spin);
 
     static int trackLogCount = 0;
     if (trackLogCount++ % 60 == 0) {

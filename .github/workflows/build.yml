@@ -64,3 +64,41 @@ jobs:
             build-wasm/videoTest.js
             build-wasm/videoTest.wasm
           if-no-files-found: error
+
+  # The sokol renderer (#13): Filament is not checked out and no host tools are built, which
+  # proves that WEBAR_RENDERER=sokol needs neither. sokol itself is vendored (third_party/sokol).
+  wasm-sokol:
+    name: WebAssembly build (sokol)
+    runs-on: ubuntu-latest
+    container: emscripten/emsdk:4.0.17
+    timeout-minutes: 60
+    env:
+      WEBAR_RENDERER: sokol
+      BUILD_DIR: build-wasm-sokol
+    steps:
+      - name: Check out without submodules
+        uses: actions/checkout@v7
+        with:
+          submodules: false
+
+      - name: Check out WebARKitLib only
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git submodule update --init third_party/WebARKitLib
+          test ! -f third_party/filament/CMakeLists.txt
+
+      - name: Build WebAR-Canvas
+        run: sh scripts/build-wasm.sh
+
+      - name: Run the tests (nft_tests, core_tests)
+        run: sh scripts/test-wasm.sh
+
+      - name: Upload the app
+        uses: actions/upload-artifact@v7
+        with:
+          name: webar-canvas-wasm-sokol
+          path: |
+            build-wasm-sokol/videoTest.html
+            build-wasm-sokol/videoTest.js
+            build-wasm-sokol/videoTest.wasm
+          if-no-files-found: error

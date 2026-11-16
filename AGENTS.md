@@ -23,15 +23,25 @@ The entire application lifecycle, computer vision tracking, camera projection ca
 
 ### B. Renderer Interface
 - `ARBaseEngine` draws only through `IARRenderer` (`src/core/IARRenderer.h`: `init`, `setProjection`, `updateVideoTexture`, `render`); it owns the main loop, the CPU video path, the tracker and the profiling probe (#13).
-- `FilamentRenderer` (`src/core/FilamentRenderer.*`) is the backend: the WebGL 2 context, the Filament engine, scene, view and camera, the video texture and background quad, and the render call. The app adds its own Filament entities to its scene.
-- Keep Filament types out of `ARBaseEngine`; renderer-specific code goes in the renderer.
+- Two backends, chosen at build time by `WEBAR_RENDERER` (CMake; `node build-docker.js --renderer filament|sokol`, default `filament`):
+  - `FilamentRenderer` (`src/core/FilamentRenderer.*`): the WebGL 2 context, the Filament engine, scene, view and camera, the video background, and the render call. The app can add its own Filament entities to its scene.
+  - `SokolRenderer` (`src/core/SokolRenderer.*`, `sokol_impl.cpp`): `sokol_gfx` with the GLES3 backend (WebGL 2), hand-written GLSL ES 3.00 shaders, no host tools. With `sokol`, CMake does not configure Filament at all (no submodule, no `matc`, no materials) and forces `WEBAR_CANVAS_GLTF` off; the build goes to `build-wasm-sokol/`.
+- Both draw the camera video from the same WebGL texture (`src/core/ARVideoTexture.*`: created once, filled from `<video id="ar-video">` with `texImage2D` on every camera frame, imported by each backend).
+- The backend-neutral mesh API (`IARRenderer::addMesh / setMeshTransform / setMeshVisible / removeMesh`; for apps `ARBaseApp::addBox / addCube / addPlane / addSphere`, `attachMeshToMarker`, `setMeshLocalTransform`, `setMeshVisible`, `removeMesh`) covers only unlit, vertex-coloured meshes: what the demo needs. Materials, textures and lighting are deliberately not in it. `ARMeshAnchors` (`src/core/ARMeshAnchors.h`, pure, tested in `core_tests`) binds mesh ids to markers and gives each mesh `anchored * local` (all zeros while lost), reading poses once per camera frame. The demo (`src/app/App.cpp`) uses only this API for the cube, so it is one source for both backends.
+- Keep Filament (and sokol) types out of `ARBaseEngine`; renderer-specific code goes in the renderer, and Filament-only app API behind `WEBAR_RENDERER_FILAMENT`.
+- sokol pitfalls (vendored commit, see `third_party/sokol/README.md`):
+  - Raw GL calls (the video upload, `createVideoTexture`) change GL state behind sokol's back: call `sg_reset_state_cache()` after them, before the next sokol call.
+  - An injected texture (`sg_image_desc.gl_texture`) keeps its own mip range, but sokol's GL samplers always use a mipmap min filter: set `GL_TEXTURE_MAX_LEVEL` to 0 on a one-level injected texture, or it is incomplete and samples black (no error, not even with `SOKOL_DEBUG`).
+  - Shaders sample through views: `sg_make_view(.texture.image)` bound in `sg_bindings.views[]`, declared in `sg_shader_desc.views[]` with a `texture_sampler_pairs[]` entry; on WebGL 2 every uniform and texture-sampler pair needs its `glsl_name`.
+  - The validation layer is compiled only with `SOKOL_DEBUG`; Release builds report nothing. Define it temporarily in `sokol_impl.cpp` when a sokol call misbehaves.
+- Updating the vendored sokol headers: `git clone --depth 1 https://github.com/floooh/sokol.git` into a folder outside the repository, copy `sokol_gfx.h` and `sokol_log.h` into `third_party/sokol/`, record the commit and date in `third_party/sokol/README.md`, then build with `--renderer sokol --test` and check the sokol demo in the browser (sokol's API changes between commits). Do not use curl or wget for it.
 
 ### C. App API (`ARBaseApp`)
 - Apps derive from `ARBaseApp` (`src/core/ARBaseApp.h`) and override `setup()` (once, after a successful init), `update(float deltaTime)`, `draw()` (every tick, after `update()`, before the render), `onMarkerFound(int)` and `onMarkerLost(int)`; all are no-ops by default.
 - Each tick: on a new camera frame the texture upload, capture, tracking and marker events; then `update()`, `draw()` and the render.
 - `update(float deltaTime)` gets the real elapsed time in seconds since the previous tick: 0 on the first tick, at most 0.1 (after a background tab or a debugger pause).
 - Marker events fire for every marker index when its tracked state changes, from the raw tracking state (no debounce). `getIsTracking()` / `getModelViewMatrix()` describe marker 0; `getMarkerPose(i, m)` gives any marker's model-view matrix (false and zeros while it is not tracked).
-- Anchors: `ARAnchor` (`src/core/ARAnchor.h`, pure C++, tested in `core_tests`) turns a marker pose into an object matrix, centred on the marker (`markerCenterMm` from width, height, dpi) and optionally smoothed (`ARAnchorOptions::smoothing`, off by default; no blending across a loss; applied once per new camera frame, not per display frame). `ARBaseApp::attachToMarker(entity, i)` (Filament) applies it to an entity before every `update()`, and scales it to 0 while the marker is lost; parent other entities to it to place them relative to the marker.
+- Anchors: `ARAnchor` (`src/core/ARAnchor.h`, pure C++, tested in `core_tests`) turns a marker pose into an object matrix, centred on the marker (`markerCenterMm` from width, height, dpi) and optionally smoothed (`ARAnchorOptions::smoothing`, off by default; no blending across a loss; applied once per new camera frame, not per display frame). `ARBaseApp::attachMeshToMarker(id, i)` (both backends, through `ARMeshAnchors`) and `ARBaseApp::attachToMarker(entity, i)` (Filament) apply it to an entity before every `update()`, and scales it to 0 while the marker is lost; parent other entities to it to place them relative to the marker.
 - Filament parenting pitfall: building a renderable can already give the entity a transform component. Then `tcm.create(entity, parentInstance)` first destroys that component, which moves other instances (possibly the parent's), so the parent is silently not set. Use `if (!tcm.hasComponent(e)) tcm.create(e);` followed by `tcm.setParent(tcm.getInstance(e), tcm.getInstance(parent))`.
 - Input: `touchDown/touchMoved/touchUp(x, y, pointerId)`, `mouseDown/mouseUp(x, y, button, pointerId)`, `mouseMoved(x, y, pointerId)`, `windowResized(w, h)` (no-ops by default). `src/core/ARInput.cpp` registers the Emscripten HTML5 callbacks on the canvas (and the window for resize) after a successful init. Coordinates are drawing-buffer pixels: `clientToCanvas()` (`src/core/ARInput.h`, tested) removes the CSS-to-pixel scale and the bars of `object-fit: contain`, and down and move events on the bars are not delivered; up and cancel events are delivered for every touch or button whose down event was, even off the image, clamped to the image's edge (`clientToCanvasClamped()`; `mouseup` is registered on the window). `pointerId` is the browser's touch identifier (only changed touches are reported; `touchcancel` → `touchUp`), 0 for the mouse. `windowResized` reports the window's inner size, once per change.
 - Primitives: `createBox(sx, sy, sz, faceColors)`, `createCube(size, color)`, `createPlane(sx, sy, color)`, `createSphere(radius, color, segments, rings)` (segments and rings at most 255: 16-bit indices) (Filament) build renderable entities from `src/core/ARPrimitives.h` (pure, tested: boxes stand on z = 0, planes lie in z = 0, spheres are centred; millimetres) with the unlit vertex-colour material `ar_cube.mat`, and add them to the scene. `ARBaseApp` owns and releases them; they have no transform component, so attach or parent them as needed.
@@ -68,8 +78,11 @@ Wasm_AR_Engine/
 │   │   ├── ARAppConfig.h           # ARAppConfig: what an app needs to start
 │   │   ├── AREvents.h              # Marker found/lost event tracking
 │   │   ├── ARBaseEngine.h/.cpp     # Main loop, CPU video path, NFT tracker, profiling probe
-│   │   ├── IARRenderer.h           # Rendering backend interface
-│   │   └── FilamentRenderer.h/.cpp # Filament backend: WebGL 2 context, scene, video background
+│   │   ├── IARRenderer.h           # Rendering backend interface (video, projection, meshes)
+│   │   ├── ARMeshAnchors.h         # Mesh ids bound to markers (pure, tested)
+│   │   ├── ARVideoTexture.h/.cpp   # The camera video texture, shared by both backends
+│   │   ├── FilamentRenderer.h/.cpp # Filament backend: WebGL 2 context, scene, video background
+│   │   └── SokolRenderer.h/.cpp    # sokol_gfx backend (WEBAR_RENDERER=sokol); sokol_impl.cpp
 │   ├── app/                 # The application (user code)
 │   │   ├── App.h            # class App : public ARBaseApp (the demo: a cube on the marker)
 │   │   └── App.cpp          # App's hooks: setup(), update(), marker events
@@ -79,7 +92,8 @@ Wasm_AR_Engine/
 │       ├── ARNFTTracker.h   # C++ NFT tracker interface
 │       └── ARNFTTracker.cpp # Adapter over WebARKitLib's ARToolKitNFTCore (RGBA frame + luma here, tracking in the core)
 ├── third_party/
-│   ├── filament/            # Google Filament submodule
+│   ├── filament/            # Google Filament submodule (Filament renderer only)
+│   ├── sokol/               # sokol_gfx.h, sokol_log.h: vendored, not a submodule (README inside)
 │   └── WebARKitLib/         # WebARKitLib submodule (AR, AR2, ARICP, ARUtil, KPM, WebARKitNFT: ARToolKitNFTCore, trackingMod, markerDecompress, NFTMarkerState)
 ├── build-wasm/              # Build directory containing compiled WASM, JS, and HTML
 ├── build-docker.js          # Cross-platform Node.js build runner for Docker (Windows & Linux)
@@ -110,10 +124,11 @@ node build-docker.js --test
 
 `build-docker.js` runs these scripts inside the container, the same ones the CI runs (`.github/workflows/build.yml`):
 - `scripts/build-host-tools.sh`: builds the Filament host tools (`matc`, `resgen`, `cmgen`, `glslminifier`, and `uberz` for the ubershader archive that glTF loading needs) in `third_party/filament/out/host` with emsdk's clang, once; it builds only the missing ones. When the list changes, bump the `-vN` suffix of the CI cache key in `.github/workflows/build.yml` (and `pages.yml`).
-- `scripts/build-wasm.sh [jobs] [target]`: configures `build-wasm/` and builds a target (`WebAR-Canvas` by default).
+- `scripts/build-wasm.sh [jobs] [target]`: configures and builds a target (`WebAR-Canvas` by default). Environment: `WEBAR_RENDERER` (`filament` or `sokol`, default `filament`) and `BUILD_DIR` (default `build-wasm/`). With sokol, `build-docker.js` sets `BUILD_DIR=build-wasm-sokol` and skips `build-host-tools.sh`; `--dry-run` prints the container commands without starting Docker.
 - `scripts/test-wasm.sh` (with `--test`): builds and runs two Node runners, with no browser or webcam; the exit code is the total number of failed checks.
   - `nft_tests` (`tests/nft_tests.cpp`) drives `ARNFTTracker` on WebARKitLib's fixtures (`tests/data`, embedded at `/data`, including `pinball-demo.jpg`).
-  - `core_tests` (`tests/core_tests.cpp`) tests the pure C++ parts of `src/core/` (no Filament, no tracker), such as `MarkerEventTracker`.
+  - `core_tests` (`tests/core_tests.cpp`) tests the pure C++ parts of `src/core/` (no renderer, no tracker), such as `MarkerEventTracker` and `ARMeshAnchors`.
+  - The runners do not use a renderer: `--test` runs the same with either backend. CI runs them in both jobs (`wasm`, and `wasm-sokol` without the Filament submodule).
 
 The Emscripten cache lives in the `webar-canvas-emcache-4.0.17` Docker volume, so the libjpeg and zlib ports are downloaded once.
 

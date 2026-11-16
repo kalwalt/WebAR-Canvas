@@ -3,6 +3,7 @@
 
 #include "core/ARAnchor.h"
 #include "core/ARAppConfig.h"
+#include "core/ARMeshAnchors.h"
 #include "core/ARBaseEngine.h"
 #include "core/ARModelError.h"
 #include "core/ARPrimitives.h"
@@ -99,8 +100,30 @@ protected:
   virtual void mouseUp(float x, float y, int button, int pointerId) {}
   virtual void windowResized(int width, int height) {} // window inner size, once per change
 
-  // The backend chosen at build time (WEBAR_RENDERER_FILAMENT).
+  // The backend chosen at build time (WEBAR_RENDERER in CMakeLists.txt: filament or sokol).
   std::unique_ptr<IARRenderer> createRenderer() override;
+
+  // --- Meshes: the backend-neutral API, the same on every renderer (#13) ---
+  // Unlit, vertex-coloured primitives (ARPrimitives.h, millimetres), drawn over the video. Ids
+  // are >= 0; -1 before init() (or for an empty mesh). Nothing beyond vertex colours: no
+  // materials, textures or lighting (the Filament-only API below has those).
+  int addMesh(const ARMesh &mesh);
+  int addBox(float sizeX, float sizeY, float sizeZ, const float faceColors[6][4]);
+  int addCube(float size, const float color[4]);
+  int addPlane(float sizeX, float sizeY, const float color[4]);
+  int addSphere(float radius, const float color[4], int segments = 24, int rings = 16);
+  // Binds the mesh to marker markerIndex: its transform becomes the marker's pose (centred on
+  // the marker by default, see ARAnchorOptions) times its local transform, updated on every new
+  // camera frame; nothing is drawn while the marker is lost. Binding again replaces the binding.
+  void attachMeshToMarker(int id, int markerIndex, ARAnchorOptions options = {});
+  // The mesh's own transform (column-major): relative to the marker if it is attached, in
+  // camera space otherwise. Identity by default.
+  void setMeshLocalTransform(int id, const float transform[16]);
+  void setMeshVisible(int id, bool visible);
+  void removeMesh(int id);
+
+  // Marker anchors of the meshes (and, with Filament, of attached entities), before update().
+  void beforeUpdate() override;
 
 #ifdef WEBAR_RENDERER_FILAMENT
   // The Filament objects behind getRenderer(): an app that uses them is a Filament app.
@@ -114,8 +137,6 @@ protected:
   void attachToMarker(utils::Entity entity, int markerIndex, ARAnchorOptions options = {});
   void detachFromMarker(utils::Entity entity);
 
-  void beforeUpdate() override;
-
   // Primitive geometry (ARPrimitives.h) as renderable entities with the unlit vertex-colour
   // material, added to the scene, in millimetres. ARBaseApp owns and releases them; the
   // returned entity has no transform component (attach it, or parent it, as needed).
@@ -127,6 +148,8 @@ protected:
                              int rings = 16);
 
 private:
+  void updateEntityAnchors(); // the Filament entities bound with attachToMarker()
+
   struct MarkerBinding {
     utils::Entity entity;
     int markerIndex;
@@ -142,14 +165,16 @@ private:
 
   std::vector<MarkerBinding> markerBindings;
   std::vector<OwnedMesh> ownedMeshes;
-  filament::Material *vertexColorMaterial = nullptr;
-  filament::MaterialInstance *vertexColorInstance = nullptr;
 #ifdef WEBAR_CANVAS_GLTF
   std::unique_ptr<ARModelLoader> models;        // created on the first loadModel()
 #endif
   std::vector<utils::Entity> modelAnchors;      // per model handle, from placeModelOnMarker()
   FilamentRenderer *filamentBackend = nullptr; // the object behind getRenderer()
 #endif
+
+private:
+  IARRenderer *meshRenderer = nullptr; // the backend, set by createRenderer()
+  ARMeshAnchors meshAnchors;           // the meshes' marker bindings and local transforms
 };
 
 // An app's main(): only sugar over ARAppConfig, which can also be filled in code.
