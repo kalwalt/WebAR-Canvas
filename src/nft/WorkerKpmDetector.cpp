@@ -39,11 +39,6 @@ bool WorkerKpmDetector::start(ARUint8 *luma, const int *skipPages, int skipNum) 
 void WorkerKpmDetector::waitIdle() { m_link->abandonPass(); }
 
 #ifdef WEBARKIT_NFT_HAS_EXTERNAL_DETECTOR
-void WorkerKpmDetector::cameraChanged(const ARParam &param) {
-  m_frameSize = param.xsize * param.ysize;
-  m_link->setCamera(kpmCameraFromParam(param));
-}
-
 void WorkerKpmDetector::markersAdded(const std::vector<int> &pages,
                                      const std::vector<std::string> &datasetPathnames) {
   std::vector<KpmMarkerData> data;

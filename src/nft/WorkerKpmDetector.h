@@ -31,7 +31,6 @@ class WorkerKpmDetector final : public NFTDetector {
   void waitIdle() override;
 
 #ifdef WEBARKIT_NFT_HAS_EXTERNAL_DETECTOR
-  void cameraChanged(const ARParam &param) override;
   void markersAdded(const std::vector<int> &pages, const std::vector<std::string> &datasetPathnames) override;
 #endif
 
