@@ -84,7 +84,13 @@ set(WEBARKIT_EXTRA_SOURCES
     ${WEBARKITLIB_DIR}/WebARKit/WebARKitVideoLuma.cpp
 )
 
-add_library(ARNFTTracker STATIC src/nft/ARNFTTracker.cpp ${WEBARKIT_EXTRA_SOURCES})
+add_library(ARNFTTracker STATIC
+    src/nft/ARNFTTracker.cpp
+    # The worker-backed KPM detector and its main-thread fallback (issue #16)
+    src/nft/KpmWorkerLink.cpp
+    src/nft/WorkerKpmDetector.cpp
+    ${WEBARKIT_EXTRA_SOURCES}
+)
 
 target_include_directories(ARNFTTracker PUBLIC
     ${WEBARKITLIB_DIR}/WebARKit/include
