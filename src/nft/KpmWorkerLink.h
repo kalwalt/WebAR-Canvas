@@ -77,6 +77,7 @@ class KpmWorkerLink {
   int m_gen = 0;
   bool m_passRunning = false;
   double m_matchSentMs = 0.0;
+  double m_lastPollMs = 0.0;  // to tell a frozen page (no frames) from a silent worker
   bool m_hasResult = false;
   int m_resultNum = -1;
   std::vector<NFTDetection> m_detections;

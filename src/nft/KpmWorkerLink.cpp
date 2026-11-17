@@ -45,6 +45,7 @@ void KpmWorkerLink::setCamera(const KpmCamera &camera) {
   m_state = State::Starting;
   m_hasCamera = true;
   m_initSentMs = now();
+  m_lastPollMs = m_initSentMs;
 }
 
 void KpmWorkerLink::addMarkers(std::vector<KpmMarkerData> markers) {
@@ -53,6 +54,17 @@ void KpmWorkerLink::addMarkers(std::vector<KpmMarkerData> markers) {
 }
 
 void KpmWorkerLink::poll() {
+  // No poll for longer than a timeout means no frames ran: a hidden tab or a sleeping device.
+  // The worker's answer may be waiting in the event queue behind this frame, so the freeze does
+  // not count against the worker: its deadlines move by the gap.
+  const double t = now();
+  const double gap = t - m_lastPollMs;
+  if (gap > kPassTimeoutMs) {
+    m_initSentMs += gap;
+    m_matchSentMs += gap;
+  }
+  m_lastPollMs = t;
+
   if (m_state == State::Starting && m_hasCamera && now() - m_initSentMs > kReadyTimeoutMs) {
     fallBack("no answer within 5 s of starting");
   } else if (m_state == State::Worker && m_passRunning && now() - m_matchSentMs > kPassTimeoutMs) {
@@ -67,6 +79,7 @@ bool KpmWorkerLink::startPass(const unsigned char *luma, int size, const int *sk
   m_transport->sendMatch(m_gen, luma, size, skipPages, skipNum);
   m_passRunning = true;
   m_matchSentMs = now();
+  m_lastPollMs = m_matchSentMs;
   return true;
 }
 

@@ -279,6 +279,14 @@ static void countWorkerLogLines(const char *message) {
 
 static const int kFrame = 640 * 480;
 
+/** Lets time pass as frames do: the detector is polled every 16 ms, as the core polls it each frame. */
+static void runFrames(const NFTDetector &d, double ms) {
+  for (double t = 0.0; t < ms; t += 16.0) {
+    gFakeNowMs += 16.0;
+    d.idle();
+  }
+}
+
 static void worker_pass_start_result_collect() {
   LinkFixture f;
   WorkerKpmDetector d(f.link, nullptr, kFrame);
@@ -358,9 +366,9 @@ static void falls_back_without_ready() {
   WorkerKpmDetector d(f.link, nullptr, kFrame);
   gWorkerLogLines = 0;
   arLogSetLogger(countWorkerLogLines, 0);
-  gFakeNowMs += KpmWorkerLink::kReadyTimeoutMs - 1.0;
+  runFrames(d, KpmWorkerLink::kReadyTimeoutMs - 32.0);
   CHECK(d.idle() && f.link.state() == KpmWorkerLink::State::Starting);
-  gFakeNowMs += 2.0;
+  runFrames(d, 64.0);
   CHECK(d.idle());
   CHECK(f.link.state() == KpmWorkerLink::State::Fallback);
   CHECK(f.transport->terminated == 1);
@@ -396,11 +404,34 @@ static void falls_back_when_a_pass_never_answers() {
   f.link.onReady();
   std::vector<unsigned char> luma(kFrame, 0);
   d.start(luma.data(), nullptr, 0);
-  gFakeNowMs += KpmWorkerLink::kPassTimeoutMs - 1.0;
+  runFrames(d, KpmWorkerLink::kPassTimeoutMs - 32.0);
   CHECK(!d.idle());
-  gFakeNowMs += 2.0;
+  runFrames(d, 64.0);
   CHECK(d.idle());
   CHECK(f.link.state() == KpmWorkerLink::State::Fallback && f.transport->terminated == 1);
+}
+
+static void a_frozen_page_does_not_fall_back() {
+  // A hidden tab or a sleeping device stops the frames; the worker's answer then waits in the
+  // event queue behind the first frame after the resume. That frame must not count the freeze
+  // against the worker.
+  LinkFixture f;
+  WorkerKpmDetector d(f.link, nullptr, kFrame);
+  gFakeNowMs += 60000.0;  // frozen during start-up
+  CHECK(d.idle() && f.link.state() == KpmWorkerLink::State::Starting);
+  f.link.onReady();
+  std::vector<unsigned char> luma(kFrame, 0);
+  d.start(luma.data(), nullptr, 0);
+  gFakeNowMs += 60000.0;  // frozen during a pass
+  CHECK(!d.idle() && f.link.state() == KpmWorkerLink::State::Worker);
+  f.link.onResult(f.transport->matches.back().gen, 1, {detectionAt(0)});
+  std::vector<NFTDetection> out;
+  int resultNum = -1;
+  CHECK(d.collect(out, resultNum) && out.size() == 1);
+  // A worker that really stops answering is still caught while frames run.
+  d.start(luma.data(), nullptr, 0);
+  runFrames(d, KpmWorkerLink::kPassTimeoutMs + 64.0);
+  CHECK(f.link.state() == KpmWorkerLink::State::Fallback);
 }
 
 static void falls_back_when_disabled_or_unavailable() {
@@ -545,6 +576,7 @@ static const TestCase kTests[] = {
     {"falls_back_on_error", falls_back_on_error},
     {"falls_back_when_a_pass_never_answers", falls_back_when_a_pass_never_answers},
     {"falls_back_when_disabled_or_unavailable", falls_back_when_disabled_or_unavailable},
+    {"a_frozen_page_does_not_fall_back", a_frozen_page_does_not_fall_back},
     {"fallback_detects_on_the_core_handle", fallback_detects_on_the_core_handle},
     {"fallback_after_a_failed_pass_detects_next", fallback_after_a_failed_pass_detects_next},
     {"fallback_without_a_handle_detects_nothing", fallback_without_a_handle_detects_nothing},

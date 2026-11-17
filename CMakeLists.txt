@@ -291,7 +291,7 @@ if(WEBAR_CANVAS_BUILD_TESTS)
         "-sINITIAL_MEMORY=134217728"
         "-sUSE_LIBJPEG=1"
         "-sUSE_ZLIB=1"
-        "-sEXPORTED_FUNCTIONS=['_main','_malloc','_free']"
+        "-sEXPORTED_FUNCTIONS=['_main','_malloc','_free','_webar_kpm_deliver','_kwb_start','_kwb_step','_kwb_state','_kwb_found','_kwb_page','_kwb_z','_kwb_running']"
         "-sEXPORTED_RUNTIME_METHODS=['stringToNewUTF8']"
         "--embed-file=${WEBARKITLIB_DIR}/tests/data@/data"
     )
