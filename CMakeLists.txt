@@ -89,6 +89,7 @@ add_library(ARNFTTracker STATIC
     # The worker-backed KPM detector and its main-thread fallback (issue #16)
     src/nft/KpmWorkerLink.cpp
     src/nft/WorkerKpmDetector.cpp
+    src/nft/WorkerTransport.cpp
     ${WEBARKIT_EXTRA_SOURCES}
 )
 
@@ -109,7 +110,9 @@ target_compile_options(ARNFTTracker PUBLIC
 # grow the module from 86 KB to 637 KB gzipped), no embedded files: the main instance sends the
 # camera and each marker's .fset3 bytes.
 set(KPM_WORKER_SOURCES src/worker/kpm_worker.cpp)
+set(KPM_WORKER_MAIN_JS ${CMAKE_CURRENT_SOURCE_DIR}/src/worker/kpm_worker_main.js)
 add_executable(kpm_worker ${KPM_WORKER_SOURCES})
+set_property(TARGET kpm_worker APPEND PROPERTY LINK_DEPENDS ${KPM_WORKER_MAIN_JS})
 target_include_directories(kpm_worker PRIVATE
     ${WEBARKITLIB_DIR}/WebARKit/WebARKitTrackers/WebARKitNFT/include
     ${CMAKE_CURRENT_SOURCE_DIR}/src/worker
@@ -123,6 +126,8 @@ target_link_options(kpm_worker PRIVATE
     "-sINITIAL_MEMORY=33554432"
     "-sEXPORTED_FUNCTIONS=['_kw_init','_kw_add_marker','_kw_match','_kw_result_num','_kw_detections','_kw_detection_size','_malloc','_free']"
     "-sEXPORTED_RUNTIME_METHODS=['HEAPU8','HEAP32','HEAPF32','HEAPF64']"
+    # The worker's onmessage handler (the protocol's worker side)
+    "--pre-js=${KPM_WORKER_MAIN_JS}"
 )
 
 # --- Version header (WEBAR_CANVAS_VERSION_*), generated from project(VERSION) ---
@@ -215,6 +220,13 @@ target_link_options(${PROJECT_NAME} PRIVATE
 
 add_dependencies(${PROJECT_NAME} ARNFTTracker)
 
+# The KPM worker module is built with the app and lands next to it (videoTest.kpm.js/.wasm), so
+# deployments ship four files. OFF builds the app alone, exactly as before issue #16.
+option(WEBAR_KPM_WORKER "Build the KPM worker module (videoTest.kpm.js/.wasm) with the app" ON)
+if(WEBAR_KPM_WORKER)
+    add_dependencies(${PROJECT_NAME} kpm_worker)
+endif()
+
 # --- glTF models through Filament's gltfio (needs the uberz host tool for uberarchive) ---
 option(WEBAR_CANVAS_GLTF "Load glTF models with Filament's gltfio (ARBaseApp::loadModel)" ON)
 if(WEBAR_CANVAS_GLTF AND NOT WEBAR_RENDERER STREQUAL "filament")
@@ -265,6 +277,22 @@ if(WEBAR_CANVAS_BUILD_TESTS)
         "-sINITIAL_MEMORY=134217728"
         "-sUSE_LIBJPEG=1"
         "-sUSE_ZLIB=1"
+        "--embed-file=${WEBARKITLIB_DIR}/tests/data@/data"
+    )
+
+    # A browser check of the worker path, built only when asked for (cmake --build ... --target
+    # kpm_worker_browser) and opened with tests/kpm_worker_browser.html; not run in CI.
+    add_executable(kpm_worker_browser tests/kpm_worker_browser.cpp)
+    target_link_libraries(kpm_worker_browser PRIVATE ARNFTTracker)
+    set_target_properties(kpm_worker_browser PROPERTIES SUFFIX ".js")
+    target_link_options(kpm_worker_browser PRIVATE
+        "-sENVIRONMENT=web"
+        "-sALLOW_MEMORY_GROWTH=1"
+        "-sINITIAL_MEMORY=134217728"
+        "-sUSE_LIBJPEG=1"
+        "-sUSE_ZLIB=1"
+        "-sEXPORTED_FUNCTIONS=['_main','_malloc','_free']"
+        "-sEXPORTED_RUNTIME_METHODS=['stringToNewUTF8']"
         "--embed-file=${WEBARKITLIB_DIR}/tests/data@/data"
     )
 

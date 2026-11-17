@@ -81,6 +81,12 @@
             }
         };
 
+        // ?kpmWorker=0 runs the KPM detection on the main thread instead of the KPM worker
+        // (issue #16), for A/B checks without rebuilding.
+        if (new URLSearchParams(location.search).get('kpmWorker') === '0') {
+            Module.webarConfig = Object.assign(Module.webarConfig || {}, { kpmWorker: false });
+        }
+
         // Global error handler
         window.onerror = function(event) {
             console.error("Global Error:", event);
