@@ -1,5 +1,6 @@
 // The KPM worker's message handler (issue #16), linked into videoTest.kpm.js with --pre-js.
-// Protocol (main <-> worker): init -> ready, markers, match -> result, error. Every binary payload
+// Protocol (main <-> worker): runtime (the module has loaded), init -> ready, markers -> loaded
+// (tagged with the number of inits handled), match -> result, error. Every binary payload
 // is an ArrayBuffer in the transfer list; the luma buffer of a match goes back with its result.
 // Messages that arrive before the WASM runtime is ready wait in a queue, in order.
 
@@ -7,6 +8,7 @@ var kwQueue = [];
 var kwRuntimeReady = false;
 var kwLumaPtr = 0;
 var kwLumaSize = 0;
+var kwEpoch = 0;  // inits handled: tags the loaded answers, so the main side can drop stale ones
 
 function kwCopyIn(bytes) {
   var ptr = _malloc(bytes.length);
@@ -21,6 +23,7 @@ function kwHandle(m) {
     HEAPF64.set(m.mat, mat >> 3);
     HEAPF64.set(m.dist, dist >> 3);
     var r = _kw_init(m.xsize, m.ysize, mat, dist, m.distFunctionVersion);
+    kwEpoch++;
     _free(mat);
     _free(dist);
     if (r < 0) self.postMessage({ type: 'error', message: 'kw_init failed (' + r + ')' });
@@ -32,6 +35,7 @@ function kwHandle(m) {
       _free(ptr);
       if (added < 0) self.postMessage({ type: 'error', message: 'kw_add_marker failed for page ' + m.pages[i] + ' (' + added + ')' });
     }
+    self.postMessage({ type: 'loaded', epoch: kwEpoch });
   } else if (m.type === 'match') {
     var size = m.luma.byteLength;
     if (size !== kwLumaSize) {
@@ -68,6 +72,7 @@ function kwDispatch(m) {
 
 Module['onRuntimeInitialized'] = function() {
   kwRuntimeReady = true;
+  self.postMessage({ type: 'runtime' });
   var queued = kwQueue;
   kwQueue = [];
   queued.forEach(kwDispatch);

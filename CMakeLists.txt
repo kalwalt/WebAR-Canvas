@@ -123,7 +123,8 @@ target_compile_options(ARNFTTracker PUBLIC
 # camera and each marker's .fset3 bytes.
 set(KPM_WORKER_SOURCES src/worker/kpm_worker.cpp)
 set(KPM_WORKER_MAIN_JS ${CMAKE_CURRENT_SOURCE_DIR}/src/worker/kpm_worker_main.js)
-add_executable(kpm_worker ${KPM_WORKER_SOURCES})
+# EXCLUDE_FROM_ALL: built as a dependency of the app with WEBAR_KPM_WORKER, or when asked for.
+add_executable(kpm_worker EXCLUDE_FROM_ALL ${KPM_WORKER_SOURCES})
 set_property(TARGET kpm_worker APPEND PROPERTY LINK_DEPENDS ${KPM_WORKER_MAIN_JS})
 target_include_directories(kpm_worker PRIVATE
     ${WEBARKITLIB_DIR}/WebARKit/WebARKitTrackers/WebARKitNFT/include
@@ -296,19 +297,21 @@ if(WEBAR_CANVAS_BUILD_TESTS)
 
     # A browser check of the worker path, built only when asked for (cmake --build ... --target
     # kpm_worker_browser) and opened with tests/kpm_worker_browser.html; not run in CI.
-    add_executable(kpm_worker_browser tests/kpm_worker_browser.cpp)
-    target_link_libraries(kpm_worker_browser PRIVATE ARNFTTracker)
-    set_target_properties(kpm_worker_browser PROPERTIES SUFFIX ".js")
-    target_link_options(kpm_worker_browser PRIVATE
-        "-sENVIRONMENT=web"
-        "-sALLOW_MEMORY_GROWTH=1"
-        "-sINITIAL_MEMORY=134217728"
-        "-sUSE_LIBJPEG=1"
-        "-sUSE_ZLIB=1"
-        "-sEXPORTED_FUNCTIONS=['_main','_malloc','_free','_webar_kpm_deliver','_kwb_start','_kwb_step','_kwb_state','_kwb_found','_kwb_page','_kwb_z','_kwb_running']"
-        "-sEXPORTED_RUNTIME_METHODS=['stringToNewUTF8']"
-        "--embed-file=${WEBARKITLIB_DIR}/tests/data@/data"
-    )
+    if(WEBAR_KPM_WORKER)
+        add_executable(kpm_worker_browser EXCLUDE_FROM_ALL tests/kpm_worker_browser.cpp)
+        target_link_libraries(kpm_worker_browser PRIVATE ARNFTTracker)
+        set_target_properties(kpm_worker_browser PROPERTIES SUFFIX ".js")
+        target_link_options(kpm_worker_browser PRIVATE
+            "-sENVIRONMENT=web"
+            "-sALLOW_MEMORY_GROWTH=1"
+            "-sINITIAL_MEMORY=134217728"
+            "-sUSE_LIBJPEG=1"
+            "-sUSE_ZLIB=1"
+            "-sEXPORTED_FUNCTIONS=['_main','_malloc','_free','_webar_kpm_deliver','_kwb_start','_kwb_step','_kwb_state','_kwb_found','_kwb_page','_kwb_z','_kwb_running']"
+            "-sEXPORTED_RUNTIME_METHODS=['stringToNewUTF8']"
+            "--embed-file=${WEBARKITLIB_DIR}/tests/data@/data"
+        )
+    endif()
 
     # Pure C++ parts of the framework core (src/core/AREvents.h, ARAppConfig.h, ARAnchor.h, ARInput.h,
     # ARMeshAnchors.h, ARPrimitives.h): no renderer, no tracker.

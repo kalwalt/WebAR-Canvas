@@ -23,7 +23,7 @@ struct NFTMarkerData {
 /** Where the last update() spent its time, in milliseconds (0 before any measured update). */
 struct NFTUpdateTimings {
     double lumaMs = 0.0;  // RGBA to luma conversion
-    double trackMs = 0.0; // the core: KPM detection and AR2 tracking
+    double trackMs = 0.0; // the core: AR2 tracking, and KPM detection (with the KPM worker, only handing the frame to it)
 };
 
 /**

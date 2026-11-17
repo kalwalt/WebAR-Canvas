@@ -31,19 +31,28 @@ EM_JS(int, webar_kpm_create, (const char *url, KpmWorkerLink *link), {
   reg.workers[id] = entry;
   var deliver = function(type, gen, resultNum, bytes, count, text) {
     if (!reg.workers[id]) return;  // terminated: nothing arrives after terminate()
-    var detPtr = 0, textPtr = 0;
+    var detPtr = 0, textPtr = 0, byteLength = 0;
     if (bytes && bytes.byteLength) {
-      detPtr = _malloc(bytes.byteLength);
-      HEAPU8.set(new Uint8Array(bytes), detPtr);
+      byteLength = bytes.byteLength;
+      detPtr = _malloc(byteLength);
+      if (!detPtr) {
+        type = 3; text = 'out of memory for a result'; count = 0; byteLength = 0;
+      } else {
+        HEAPU8.set(new Uint8Array(bytes), detPtr);
+      }
     }
     if (text) textPtr = stringToNewUTF8(text);
-    _webar_kpm_deliver(entry.link, type, gen, resultNum, detPtr, count, textPtr);
+    _webar_kpm_deliver(entry.link, type, gen, resultNum, detPtr, count, byteLength, textPtr);
     if (detPtr) _free(detPtr);
     if (textPtr) _free(textPtr);
   };
   worker.onmessage = function(ev) {
     var m = ev.data || {};
-    if (m.type === 'ready') {
+    if (m.type === 'runtime') {
+      deliver(4, 0, 0, null, 0, null);
+    } else if (m.type === 'loaded') {
+      deliver(5, m.epoch | 0, 0, null, 0, null);
+    } else if (m.type === 'ready') {
       deliver(1, 0, 0, null, 0, null);
     } else if (m.type === 'result') {
       // The luma buffer comes back to the pool, whether or not the result is still current.
@@ -72,11 +81,21 @@ EM_JS(void, webar_kpm_post_init, (int id, int xsize, int ysize, const double *ma
   });
 });
 
-EM_JS(void, webar_kpm_post_marker, (int id, int page, const unsigned char *bytes, int size), {
+// A batch is gathered marker by marker, then posted as one markers message.
+EM_JS(void, webar_kpm_add_marker, (int id, int page, const unsigned char *bytes, int size), {
   var entry = Module.__webarKpm && Module.__webarKpm.workers[id];
   if (!entry) return;
-  var buffer = HEAPU8.slice(bytes, bytes + size).buffer;  // a copy, handed over to the worker
-  entry.worker.postMessage({ type: 'markers', pages: [page], datasets: [buffer] }, [buffer]);
+  var batch = entry.batch || (entry.batch = { pages: [], datasets: [] });
+  batch.pages.push(page);
+  batch.datasets.push(HEAPU8.slice(bytes, bytes + size).buffer);  // a copy, handed over to the worker
+});
+
+EM_JS(void, webar_kpm_post_markers, (int id), {
+  var entry = Module.__webarKpm && Module.__webarKpm.workers[id];
+  if (!entry || !entry.batch) return;
+  var batch = entry.batch;
+  entry.batch = null;
+  entry.worker.postMessage({ type: 'markers', pages: batch.pages, datasets: batch.datasets }, batch.datasets);
 });
 
 EM_JS(void, webar_kpm_post_match, (int id, int gen, const unsigned char *luma, int size, const int *skip, int skipNum), {
@@ -107,19 +126,29 @@ EM_JS(int, webar_kpm_enabled_by_page, (), {
   return (config && typeof config === 'object' && config.kpmWorker === false) ? 0 : 1;
 });
 
-// Called by the JavaScript above for every message of a worker. type: 1 ready, 2 result, 3 error.
+// Called by the JavaScript above for every message of a worker.
+// type: 1 ready, 2 result, 3 error, 4 runtime (module loaded), 5 loaded (markers; gen = init count).
 extern "C" EMSCRIPTEN_KEEPALIVE void webar_kpm_deliver(KpmWorkerLink *link, int type, int gen, int resultNum,
                                                        const NFTDetection *detections, int count,
-                                                       const char *text) {
+                                                       int byteLength, const char *text) {
   if (!link) return;
   if (type == 1) {
     link->onReady();
   } else if (type == 2) {
+    // Both modules share NFTDetection's layout; a count the bytes cannot hold means they do not.
+    if (count < 0 || static_cast<size_t>(count) * sizeof(NFTDetection) > static_cast<size_t>(byteLength)) {
+      link->onError("a result does not match the detection layout");
+      return;
+    }
     std::vector<NFTDetection> list;
     if (detections && count > 0) list.assign(detections, detections + count);
     link->onResult(gen, resultNum, std::move(list));
   } else if (type == 3) {
     link->onError(text ? text : "error");
+  } else if (type == 4) {
+    link->onRuntimeLoaded();
+  } else if (type == 5) {
+    link->onMarkersLoaded(gen);
   }
 }
 
@@ -140,9 +169,10 @@ void WorkerTransport::sendInit(const KpmCamera &camera) {
 void WorkerTransport::sendMarkers(std::vector<KpmMarkerData> &markers) {
   if (!m_id) return;
   for (KpmMarkerData &m : markers) {
-    webar_kpm_post_marker(m_id, m.page, m.fset3.data(), static_cast<int>(m.fset3.size()));
+    webar_kpm_add_marker(m_id, m.page, m.fset3.data(), static_cast<int>(m.fset3.size()));
     std::vector<unsigned char>().swap(m.fset3);  // released here once copied for the worker
   }
+  webar_kpm_post_markers(m_id);  // one message per batch, answered by one loaded
 }
 
 void WorkerTransport::sendMatch(int gen, const unsigned char *luma, int size, const int *skipPages, int skipNum) {

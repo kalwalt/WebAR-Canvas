@@ -3,6 +3,8 @@
 // these functions from its message handler, one message at a time.
 #include "kpm_worker.h"
 
+#include <emscripten.h>
+
 #include <AR/ar.h>
 #include <KPM/kpm.h>
 #include <WebARKitTrackers/WebARKitNFT/KpmRefDataSetCopy.h>
@@ -49,7 +51,7 @@ KpmRefDataSet *loadMarker(const unsigned char *fset3, int size) {
 
 extern "C" {
 
-int kw_init(int xsize, int ysize, const double *mat, const double *dist, int distFunctionVersion) {
+EMSCRIPTEN_KEEPALIVE int kw_init(int xsize, int ysize, const double *mat, const double *dist, int distFunctionVersion) {
   reset();
   if (xsize <= 0 || ysize <= 0 || !mat || !dist) return -1;
   if (distFunctionVersion < 1 || distFunctionVersion > AR_DIST_FUNCTION_VERSION_MAX) return -1;
@@ -73,7 +75,7 @@ int kw_init(int xsize, int ysize, const double *mat, const double *dist, int dis
   return 0;
 }
 
-int kw_add_marker(const unsigned char *fset3, int size, int page) {
+EMSCRIPTEN_KEEPALIVE int kw_add_marker(const unsigned char *fset3, int size, int page) {
   if (!gKpm || !fset3 || size <= 0 || page < 0) return -1;
 
   KpmRefDataSet *marker = loadMarker(fset3, size);
@@ -104,7 +106,7 @@ int kw_add_marker(const unsigned char *fset3, int size, int page) {
   return 0;
 }
 
-int kw_match(const unsigned char *luma, const int *skipPages, int skipNum) {
+EMSCRIPTEN_KEEPALIVE int kw_match(const unsigned char *luma, const int *skipPages, int skipNum) {
   if (!gKpm || !luma) return -1;
 
   // Pages already tracked need no pose this pass; kpmMatching() clears the flags when it ends.
@@ -130,10 +132,10 @@ int kw_match(const unsigned char *luma, const int *skipPages, int skipNum) {
   return static_cast<int>(gDetections.size());
 }
 
-int kw_result_num(void) { return gResultNum; }
+EMSCRIPTEN_KEEPALIVE int kw_result_num(void) { return gResultNum; }
 
-const NFTDetection *kw_detections(void) { return gDetections.empty() ? nullptr : gDetections.data(); }
+EMSCRIPTEN_KEEPALIVE const NFTDetection *kw_detections(void) { return gDetections.empty() ? nullptr : gDetections.data(); }
 
-int kw_detection_size(void) { return static_cast<int>(sizeof(NFTDetection)); }
+EMSCRIPTEN_KEEPALIVE int kw_detection_size(void) { return static_cast<int>(sizeof(NFTDetection)); }
 
 }  // extern "C"

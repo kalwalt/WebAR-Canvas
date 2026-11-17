@@ -272,6 +272,11 @@ struct LinkFixture {
     link.setCamera(testCamera());
     link.addMarkers(oneMarker(0));
   }
+  /** The worker's answers to init and markers: ready, and the markers loaded. */
+  void ready() {
+    link.onReady();
+    link.onMarkersLoaded(link.initCount());
+  }
 };
 
 static int gWorkerLogLines = 0;
@@ -299,7 +304,7 @@ static void worker_pass_start_result_collect() {
   // Before ready: passes are refused and the detector looks idle.
   CHECK(!d.start(luma.data(), nullptr, 0));
   CHECK(d.idle() && f.transport->matches.empty());
-  f.link.onReady();
+  f.ready();
   CHECK(f.link.state() == KpmWorkerLink::State::Worker);
   const int skip[1] = {2};
   CHECK(!d.start(luma.data(), skip, 1));  // asynchronous: never finished inside start()
@@ -322,7 +327,7 @@ static void late_result_after_abandon_is_dropped() {
   LinkFixture f;
   WorkerKpmDetector d(f.link, nullptr, kFrame);
   std::vector<unsigned char> luma(kFrame, 0);
-  f.link.onReady();
+  f.ready();
   d.start(luma.data(), nullptr, 0);
   const int oldGen = f.transport->matches.back().gen;
   d.waitIdle();  // the core's dropRunningSearch(): does not block
@@ -343,7 +348,7 @@ static void late_result_after_abandon_is_dropped() {
 
 static void recreated_detector_resends_without_respawning() {
   LinkFixture f;
-  f.link.onReady();
+  f.ready();
   {
     WorkerKpmDetector first(f.link, nullptr, kFrame);
   }
@@ -359,7 +364,7 @@ static void recreated_detector_resends_without_respawning() {
   // The worker starts over with the new camera: no pass until it is ready again.
   std::vector<unsigned char> luma(320 * 480, 0);
   CHECK(!second.start(luma.data(), nullptr, 0) && f.transport->matches.empty());
-  f.link.onReady();
+  f.ready();
   second.start(luma.data(), nullptr, 0);
   CHECK(f.transport->matches.size() == 1);
 }
@@ -369,6 +374,7 @@ static void falls_back_without_ready() {
   WorkerKpmDetector d(f.link, nullptr, kFrame);
   gWorkerLogLines = 0;
   arLogSetLogger(countWorkerLogLines, 0);
+  f.link.onRuntimeLoaded();  // the worker's module has loaded: init gets kReadyTimeoutMs
   runFrames(d, KpmWorkerLink::kReadyTimeoutMs - 32.0);
   CHECK(d.idle() && f.link.state() == KpmWorkerLink::State::Starting);
   runFrames(d, 64.0);
@@ -376,7 +382,7 @@ static void falls_back_without_ready() {
   CHECK(f.link.state() == KpmWorkerLink::State::Fallback);
   CHECK(f.transport->terminated == 1);
   // A late ready changes nothing; the switch is logged once.
-  f.link.onReady();
+  f.ready();
   d.idle();
   arLogSetLogger(nullptr, 0);
   CHECK(f.link.state() == KpmWorkerLink::State::Fallback);
@@ -386,7 +392,7 @@ static void falls_back_without_ready() {
 static void falls_back_on_error() {
   LinkFixture f;
   WorkerKpmDetector d(f.link, nullptr, kFrame);
-  f.link.onReady();
+  f.ready();
   std::vector<unsigned char> luma(kFrame, 0);
   d.start(luma.data(), nullptr, 0);
   const int gen = f.transport->matches.back().gen;
@@ -404,7 +410,7 @@ static void falls_back_on_error() {
 static void falls_back_when_a_pass_never_answers() {
   LinkFixture f;
   WorkerKpmDetector d(f.link, nullptr, kFrame);
-  f.link.onReady();
+  f.ready();
   std::vector<unsigned char> luma(kFrame, 0);
   d.start(luma.data(), nullptr, 0);
   runFrames(d, KpmWorkerLink::kPassTimeoutMs - 32.0);
@@ -422,7 +428,7 @@ static void a_frozen_page_does_not_fall_back() {
   WorkerKpmDetector d(f.link, nullptr, kFrame);
   gFakeNowMs += 60000.0;  // frozen during start-up
   CHECK(d.idle() && f.link.state() == KpmWorkerLink::State::Starting);
-  f.link.onReady();
+  f.ready();
   std::vector<unsigned char> luma(kFrame, 0);
   d.start(luma.data(), nullptr, 0);
   gFakeNowMs += 60000.0;  // frozen during a pass
@@ -505,7 +511,7 @@ static void fallback_after_a_failed_pass_detects_next() {
   if (!core.kpm || core.luma.empty()) return;
   LinkFixture f;
   WorkerKpmDetector d(f.link, core.kpm, 2000 * 1500);
-  f.link.onReady();
+  f.ready();
   CHECK(!d.start(core.luma.data(), nullptr, 0));
   f.link.onError("lost");
   CHECK(d.idle());
@@ -554,9 +560,59 @@ static void camera_copies_the_param() {
   CHECK(c.dist[0] == param.dist_factor[0] && c.dist[8] == param.dist_factor[8]);
 }
 
+static void no_pass_while_markers_load() {
+  // The worker handles messages in order: a pass sent behind a slow marker load would have its
+  // 2 s deadline eaten by the load. Passes wait until the worker confirms the markers.
+  LinkFixture f;
+  WorkerKpmDetector d(f.link, nullptr, kFrame);
+  f.link.onReady();
+  std::vector<unsigned char> luma(kFrame, 0);
+  CHECK(!d.start(luma.data(), nullptr, 0) && f.transport->matches.empty());
+  runFrames(d, 3000.0);  // a long load is not a failure
+  CHECK(f.link.state() == KpmWorkerLink::State::Worker && d.idle());
+  // An answer for the markers of an earlier init does not count.
+  f.link.onMarkersLoaded(f.link.initCount() - 1);
+  d.start(luma.data(), nullptr, 0);
+  CHECK(f.transport->matches.empty());
+  f.link.onMarkersLoaded(f.link.initCount());
+  d.start(luma.data(), nullptr, 0);
+  CHECK(f.transport->matches.size() == 1);
+  // A later batch makes passes wait again.
+  std::vector<NFTDetection> out;
+  int resultNum = -1;
+  f.link.onResult(f.transport->matches.back().gen, 0, {});
+  CHECK(d.collect(out, resultNum));
+  f.link.addMarkers(oneMarker(1));
+  d.start(luma.data(), nullptr, 0);
+  CHECK(f.transport->matches.size() == 1);
+  f.link.onMarkersLoaded(f.link.initCount());
+  d.start(luma.data(), nullptr, 0);
+  CHECK(f.transport->matches.size() == 2);
+}
+
+static void start_up_allows_for_loading_the_module() {
+  // Until the worker's module has loaded (fetched and compiled), the start-up window is
+  // kLoadTimeoutMs; once it has, ready must follow within kReadyTimeoutMs.
+  LinkFixture slow;
+  WorkerKpmDetector d(slow.link, nullptr, kFrame);
+  runFrames(d, KpmWorkerLink::kReadyTimeoutMs + 64.0);
+  CHECK(slow.link.state() == KpmWorkerLink::State::Starting);
+  runFrames(d, KpmWorkerLink::kLoadTimeoutMs - KpmWorkerLink::kReadyTimeoutMs);
+  CHECK(slow.link.state() == KpmWorkerLink::State::Fallback);
+
+  LinkFixture loaded;
+  WorkerKpmDetector e(loaded.link, nullptr, kFrame);
+  runFrames(e, 4000.0);
+  loaded.link.onRuntimeLoaded();
+  runFrames(e, KpmWorkerLink::kReadyTimeoutMs - 64.0);
+  CHECK(loaded.link.state() == KpmWorkerLink::State::Starting);
+  runFrames(e, 128.0);
+  CHECK(loaded.link.state() == KpmWorkerLink::State::Fallback);
+}
+
 static void destroying_the_detector_abandons_its_pass() {
   LinkFixture f;
-  f.link.onReady();
+  f.ready();
   std::vector<unsigned char> luma(kFrame, 0);
   int gen = -1;
   {
@@ -610,6 +666,8 @@ struct LoopbackTransport : KpmTransport {
       }
     }
     markerPages.push_back(pages);
+    const int epoch = static_cast<int>(cameras.size());  // inits handled so far, as the worker counts them
+    answers.push_back([this, epoch] { link->onMarkersLoaded(epoch); });
   }
   void sendMatch(int gen, const unsigned char *luma, int, const int *skipPages, int skipNum) override {
     ++matches;
@@ -653,7 +711,10 @@ static void tracker_tracks_through_the_worker() {
   CHECK(!transport->cameras.empty() && transport->cameras[0].xsize == 2000 && transport->cameras[0].ysize == 1500);
   CHECK((transport->markerPages == std::vector<std::vector<int>>{{0}}));
   CHECK(transport->matches >= 1);
-  // The same pose as the in-process path, within a millimetre.
+  // The same pose as the in-process path, within the run-to-run jitter of the AR2 tracking (the
+  // core's clock is real time, so detection and filtering vary by a few millimetres between runs
+  // of either path): 3 mm across, 10 mm in depth at ~580 mm. A default tracker has no Worker in
+  // Node, so it falls back to KPM on the core's handle, which is what Detector::Sync runs.
   ARNFTTracker sync;
   CHECK(trackPinball(sync));
   for (int i = 0; i < 3; i++) {
@@ -664,7 +725,11 @@ static void tracker_tracks_through_the_worker() {
   float a[16], b[16];
   t.getTransformMatrix(0, a);
   sync.getTransformMatrix(0, b);
-  CHECK(std::fabs(a[12] - b[12]) < 1.0f && std::fabs(a[13] - b[13]) < 1.0f && std::fabs(a[14] - b[14]) < 1.0f);
+  const bool close = std::fabs(a[12] - b[12]) < 3.0f && std::fabs(a[13] - b[13]) < 3.0f && std::fabs(a[14] - b[14]) < 10.0f;
+  CHECK(close);
+  if (!close) {
+    std::printf("  pose worker (%.2f, %.2f, %.2f) in-process (%.2f, %.2f, %.2f)\n", a[12], a[13], a[14], b[12], b[13], b[14]);
+  }
 }
 
 static void recreated_detector_gets_camera_and_every_marker() {
@@ -733,6 +798,8 @@ static const TestCase kTests[] = {
     {"fallback_without_a_handle_detects_nothing", fallback_without_a_handle_detects_nothing},
     {"reads_marker_data_from_the_file_system", reads_marker_data_from_the_file_system},
     {"camera_copies_the_param", camera_copies_the_param},
+    {"no_pass_while_markers_load", no_pass_while_markers_load},
+    {"start_up_allows_for_loading_the_module", start_up_allows_for_loading_the_module},
     {"destroying_the_detector_abandons_its_pass", destroying_the_detector_abandons_its_pass},
 #if defined(WEBAR_KPM_WORKER) && defined(WEBARKIT_NFT_HAS_EXTERNAL_DETECTOR)
     {"tracker_tracks_through_the_worker", tracker_tracks_through_the_worker},

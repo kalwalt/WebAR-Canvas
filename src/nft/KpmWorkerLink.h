@@ -21,7 +21,8 @@ class KpmWorkerLink {
  public:
   enum class State { Starting, Worker, Fallback };
 
-  static constexpr double kReadyTimeoutMs = 5000.0;  // from init to ready
+  static constexpr double kReadyTimeoutMs = 5000.0;  // from init (or the module loaded) to ready
+  static constexpr double kLoadTimeoutMs = 15000.0;  // from init to ready while the worker's module loads
   static constexpr double kPassTimeoutMs = 2000.0;   // from match to result (a pass is ~45 ms on a desktop)
 
   /**
@@ -63,6 +64,12 @@ class KpmWorkerLink {
   // --- From the transport (incoming messages, main thread) ---
 
   void onReady();
+  /** The worker's WASM module has loaded (fetched and compiled); init follows in its queue. */
+  void onRuntimeLoaded();
+  /** The worker has loaded the markers sent after its initCount-th init. */
+  void onMarkersLoaded(int initCount);
+  /** How many inits were sent: the worker tags its markers answers with its own count. */
+  int initCount() const { return m_initCount; }
   void onResult(int gen, int resultNum, std::vector<NFTDetection> detections);
   void onError(const std::string &message);
 
@@ -80,6 +87,9 @@ class KpmWorkerLink {
   bool m_passRunning = false;
   double m_matchSentMs = 0.0;
   double m_lastPollMs = 0.0;  // to tell a frozen page (no frames) from a silent worker
+  int m_initCount = 0;
+  int m_markersPending = 0;    // markers messages of the current init not confirmed yet
+  bool m_runtimeLoaded = false;
   bool m_hasResult = false;
   int m_resultNum = -1;
   std::vector<NFTDetection> m_detections;

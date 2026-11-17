@@ -43,6 +43,8 @@ void KpmWorkerLink::setCamera(const KpmCamera &camera) {
   // The worker starts over: a running pass belongs to the old camera and markers.
   abandonPass();
   m_transport->sendInit(camera);
+  ++m_initCount;
+  m_markersPending = 0;  // the worker forgets its markers on init
   m_state = State::Starting;
   m_hasCamera = true;
   m_initSentMs = now();
@@ -52,6 +54,7 @@ void KpmWorkerLink::setCamera(const KpmCamera &camera) {
 void KpmWorkerLink::addMarkers(std::vector<KpmMarkerData> markers) {
   if (m_state == State::Fallback || !m_hasCamera || markers.empty()) return;
   m_transport->sendMarkers(markers);
+  ++m_markersPending;  // one markers message, confirmed by one loaded answer
 }
 
 void KpmWorkerLink::poll() {
@@ -66,15 +69,19 @@ void KpmWorkerLink::poll() {
   }
   m_lastPollMs = t;
 
-  if (m_state == State::Starting && m_hasCamera && now() - m_initSentMs > kReadyTimeoutMs) {
-    fallBack("no answer within 5 s of starting");
+  // Until the worker's module has loaded, start-up includes fetching and compiling it.
+  const double readyLimit = m_runtimeLoaded ? kReadyTimeoutMs : kLoadTimeoutMs;
+  if (m_state == State::Starting && m_hasCamera && now() - m_initSentMs > readyLimit) {
+    fallBack(m_runtimeLoaded ? "no answer within 5 s of starting" : "the worker did not load within 15 s");
   } else if (m_state == State::Worker && m_passRunning && now() - m_matchSentMs > kPassTimeoutMs) {
     fallBack("a pass got no result within 2 s");
   }
 }
 
 bool KpmWorkerLink::startPass(const unsigned char *luma, int size, const int *skipPages, int skipNum) {
-  if (m_state != State::Worker || m_passRunning || !luma || size <= 0) return false;
+  // A pass waits until the worker has loaded the markers sent before it: the worker handles
+  // messages in order, and a slow load must not eat the pass's deadline.
+  if (m_state != State::Worker || m_passRunning || m_markersPending > 0 || !luma || size <= 0) return false;
   ++m_gen;
   m_hasResult = false;
   m_transport->sendMatch(m_gen, luma, size, skipPages, skipNum);
@@ -112,7 +119,20 @@ void KpmWorkerLink::fallBack(const std::string &reason) {
   ARLOGw("KPM worker unavailable (%s): running KPM on the main thread\n", reason.c_str());
 }
 
+void KpmWorkerLink::onRuntimeLoaded() {
+  if (m_state == State::Fallback) return;
+  m_runtimeLoaded = true;
+  if (m_state == State::Starting) m_initSentMs = now();  // the 5 s for ready start now
+}
+
+void KpmWorkerLink::onMarkersLoaded(int initCount) {
+  // Answers for the markers of an earlier init belong to a set the worker has forgotten.
+  if (m_state == State::Fallback || initCount != m_initCount || m_markersPending == 0) return;
+  --m_markersPending;
+}
+
 void KpmWorkerLink::onReady() {
+  m_runtimeLoaded = true;  // ready comes from a running module
   if (m_state != State::Starting) return;
   m_state = State::Worker;
   ARLOGi("KPM worker ready\n");
