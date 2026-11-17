@@ -54,7 +54,11 @@ The entire application lifecycle, computer vision tracking, camera projection ca
 - **GPU Path (Rendering)**: on each camera frame, `update_webgl_texture` (`src/core/ARVideoTexture.cpp`) copies the `<video>` frame into one WebGL texture shared by both backends. Filament draws it on a background quad with `materials/video_background.mat`; sokol with its own GLSL ES 3.00 shader (`SokolRenderer.cpp`).
 - **CPU Path (Tracking)**: frames are copied into `ARNFTTracker`'s RGBA buffer (`getVideoFrame()`), converted to luma by `webarkitVideoLuma` into `lumaInfo` (`getVideoLuma()`) and used for KPM feature matching and AR2 template tracking; both buffers are released in `ARNFTTracker::teardown()`.
 - **Frame pacing**: both paths run once per new camera frame (`requestVideoFrameCallback`, in `ARBaseEngine::updateVideoFrame()`), not once per display frame; `update()`, `draw()` and the render run every display frame. Without `requestVideoFrameCallback`, or when it has not fired for 250 ms while the video plays, every tick processes the frame.
-- **KPM on the main thread**: while no marker is tracked, `ARToolKitNFTCore` runs KPM detection on every frame. The 200 ms detection interval only limits re-detection while some markers are tracked and others are not; with a single marker, KPM stops once it is tracked. A KPM pass takes tens of milliseconds, so searching is the slowest state of the app (#4).
+- **KPM in a Web Worker** (#16): while no marker is tracked, `ARToolKitNFTCore` runs KPM detection on every frame (the 200 ms detection interval only limits re-detection while some markers are tracked and others are not). A pass takes tens of milliseconds, so with `WEBAR_KPM_WORKER` (CMake, on by default) it runs in a Web Worker with its own small WASM module, `videoTest.kpm.js/.wasm` (`src/worker/`, no `-g`), and the main thread only copies the luma frame:
+  - `ARNFTTracker` builds the core with `Detector::External`. The core's factory (`ARNFTTracker::makeKpmDetector`) receives the tracker, the core's KPM handle and the resized camera, and returns a `WorkerKpmDetector` (`src/nft/`); `markersAdded()` tells it the markers (all at creation, new batches after). The core recreates the detector after every `setupAR2()`; `KpmWorkerLink`, owned by the tracker, outlives detectors, so the worker is not respawned.
+  - Protocol (`WorkerTransport.cpp` on the main side, `src/worker/kpm_worker_main.js` in the worker): `init` (the camera as numbers) → `ready`, `markers` (each marker's `.fset3` bytes from the main instance's file system, with the core's page numbers), `match` (a generation number and the luma frame) → `result`, `error`. Binary payloads are transferred `ArrayBuffer`s; two luma buffers go back and forth. No `SharedArrayBuffer`, so no cross-origin isolation.
+  - A pass abandoned by `waitIdle()` or by destroying the detector is dropped by its generation number when its result arrives; `idle()` stays false until a finished pass is collected (the `NFTDetector` contract). `markersAdded()` must not call back into the core.
+  - Fallback, final for the session and logged once (`KPM worker unavailable (...)`): when the worker cannot be created, sends no `ready` within 5 s, reports an error, leaves a pass unanswered for 2 s (a frozen page does not count), or the page disables it (`Module.webarConfig.kpmWorker = false`; `?kpmWorker=0` in `src/shell.html`). KPM then runs on the main thread on the core's own KPM handle, as before #16. `Module.webarConfig.kpmWorkerUrl` overrides the worker's URL (default: `videoTest.kpm.js` next to `videoTest.js`).
 
 ### E. Camera Projection & Coordinate Alignment
 - ARToolKit intrinsic parameters (`camera_para.dat`) are loaded using `arParamLoad()` and resized with `arParamChangeSize()`.
@@ -93,10 +97,12 @@ WebAR-Canvas/
 │   ├── main.cpp             # Entry point: AR_APP_MAIN(App, 640, 480, "/assets/markers/pinball")
 │   ├── shell.html           # Emscripten HTML shell template
 │   ├── WebARCanvasVersion.h.in  # Version header template (project(VERSION) in CMakeLists.txt)
-│   └── nft/                 # Native C++ NFT tracking subsystem
-│       ├── ARNFTTracker.h   # C++ NFT tracker interface
-│       └── ARNFTTracker.cpp # Adapter over WebARKitLib's ARToolKitNFTCore (RGBA frame + luma here, tracking in the core)
-├── tests/                   # Node runners: nft_tests.cpp (ARNFTTracker), core_tests.cpp (pure src/core)
+│   ├── nft/                 # Native C++ NFT tracking subsystem
+│   │   ├── ARNFTTracker.h   # C++ NFT tracker interface
+│   │   ├── ARNFTTracker.cpp # Adapter over WebARKitLib's ARToolKitNFTCore (RGBA frame + luma here, tracking in the core)
+│   │   └── WorkerKpmDetector, KpmWorkerLink, WorkerTransport, KpmTransport.h  # KPM in a Web Worker (#16)
+│   └── worker/              # The KPM worker module (videoTest.kpm.js/.wasm): kpm_worker.cpp, kpm_worker_main.js
+├── tests/                   # Node runners: nft_tests.cpp (ARNFTTracker, worker detector), core_tests.cpp (pure src/core), kpm_worker_tests.cpp; kpm_worker_browser.{cpp,html} (browser check, built on request)
 ├── scripts/                 # build-host-tools.sh, build-wasm.sh, test-wasm.sh (run in the container), build-docker.test.js
 ├── docs/                    # template.md (using the repository as a template), superpowers/plans/ (stage plans)
 ├── third_party/
@@ -105,7 +111,7 @@ WebAR-Canvas/
 │   └── WebARKitLib/         # WebARKitLib submodule (AR, AR2, ARICP, ARUtil, KPM, WebARKitNFT: ARToolKitNFTCore, trackingMod, markerDecompress, NFTMarkerState)
 ├── .github/workflows/       # build.yml (CI: wasm, wasm-sokol), pages.yml (GitHub Pages)
 ├── .claude/                 # Claude Code: settings.json, agents/, skills/, hooks/ (section 7)
-├── build-wasm/              # Build output, Filament (videoTest.html/.js/.wasm); not committed
+├── build-wasm/              # Build output, Filament (videoTest.html/.js/.wasm, videoTest.kpm.js/.wasm); not committed
 ├── build-wasm-sokol/        # Build output, sokol; not committed
 ├── build-docker.js          # Cross-platform Node.js build runner for Docker (Windows & Linux)
 ├── CMakeLists.txt           # Main CMake project build definition
@@ -144,8 +150,10 @@ Build times on the maintainer's machine: the first Filament build in a checkout 
 `build-docker.js` runs these scripts inside the container, the same ones the CI runs (`.github/workflows/build.yml`):
 - `scripts/build-host-tools.sh`: builds the Filament host tools (`matc`, `resgen`, `cmgen`, `glslminifier`, and `uberz` for the ubershader archive that glTF loading needs) in `third_party/filament/out/host` with emsdk's clang, once; it builds only the missing ones. When the list changes, bump the `-vN` suffix of the CI cache key in `.github/workflows/build.yml` (and `pages.yml`).
 - `scripts/build-wasm.sh [jobs] [target]`: configures and builds a target (`WebAR-Canvas` by default). Environment: `WEBAR_RENDERER` (`filament` or `sokol`, default `filament`) and `BUILD_DIR` (relative to the repository; default `build-wasm/`, or `build-wasm-<renderer>/` for another renderer). With sokol, `build-docker.js` skips `build-host-tools.sh`; `--dry-run` prints the container commands without starting Docker.
-- `scripts/test-wasm.sh` (with `--test`): builds and runs two Node runners, with no browser or webcam; the exit code is the total number of failed checks.
-  - `nft_tests` (`tests/nft_tests.cpp`) drives `ARNFTTracker` on WebARKitLib's fixtures (`tests/data`, embedded at `/data`, including `pinball-demo.jpg`).
+- `scripts/test-wasm.sh` (with `--test`): builds and runs three Node runners, with no browser or webcam, and links the worker module; the exit code is the total number of failed checks.
+  - `nft_tests` (`tests/nft_tests.cpp`) drives `ARNFTTracker` on WebARKitLib's fixtures (`tests/data`, embedded at `/data`, including `pinball-demo.jpg`), and the worker-backed detector with a fake transport and a loopback transport that runs the worker's entry points in-process. In Node there is no `Worker`, so trackers built with the default transport fall back (one `KPM worker unavailable` line each).
+  - `kpm_worker_tests` (`tests/kpm_worker_tests.cpp`) tests the worker module's entry points (`src/worker/kpm_worker.cpp`).
+  - `kpm_worker_browser` (built only on request, `cmake --build <dir> --target kpm_worker_browser`; open `tests/kpm_worker_browser.html` next to it) runs the detector through a real worker in a browser.
   - `core_tests` (`tests/core_tests.cpp`) tests the pure C++ parts of `src/core/` (no renderer, no tracker), such as `MarkerEventTracker` and `ARMeshAnchors`.
   - The runners do not use a renderer: `--test` runs the same with either backend. CI runs them in both jobs (`wasm`, and `wasm-sokol` without the Filament submodule).
 
@@ -169,7 +177,7 @@ Before starting Docker, `build-docker.js` stops with a clear message when a subm
 ### Key CMake & Linker Requirements
 - **Web Ports**: Emscripten port dependencies `-sUSE_ZLIB=1` and `-sUSE_LIBJPEG=1` must be provided in both compile and link options.
 - **Embedded Files**: In `CMakeLists.txt`, always format `--embed-file` with an equal sign (`--embed-file=<src>@<dst>`) to prevent CMake from splitting the flag and its destination path during linking.
-- **Exports**: a C function called from JavaScript (`Module.ccall`) must be `EMSCRIPTEN_KEEPALIVE` and listed in `EXPORTED_FUNCTIONS` (e.g. `'_webar_load_model'`); a runtime method used from JavaScript must be listed in `EXPORTED_RUNTIME_METHODS` (e.g. `'GL'`, `'UTF8ToString'`, `'ccall'`, `'FS_createDataFile'`). Both lists are in `CMakeLists.txt` and shared by both renderers.
+- **Exports**: a C function called from JavaScript (`Module.ccall`) must be `EMSCRIPTEN_KEEPALIVE` and listed in `EXPORTED_FUNCTIONS` (e.g. `'_webar_load_model'`); a runtime method used from JavaScript must be listed in `EXPORTED_RUNTIME_METHODS` (e.g. `'GL'`, `'UTF8ToString'`, `'ccall'`, `'FS_createDataFile'`). Both lists are in `CMakeLists.txt` and shared by both renderers. With `WEBAR_KPM_WORKER`, `WEBAR_KPM_WORKER_EXPORTS` adds `'_webar_kpm_deliver'`, `'_malloc'` and `'_free'` (called by `WorkerTransport`'s JavaScript) to the app's and `nft_tests`' lists; the worker module (`kpm_worker`) has its own list.
 
 ---
 

@@ -28,7 +28,9 @@
 
 ## Developing while webarkit/WebARKitLib#115 is open
 
-The submodule pins `c3ede5d`, which has `NFTDetector` but not `Detector::External`, the factory or the hooks. So:
+> **Status (2026-11-17):** webarkit/WebARKitLib#116 (the amended #115) is merged. The submodule now sits on a **provisional** `dev` pin, `687f329`, because no WebARKitLib release contains #116 yet; a final commit moves it to that release before the PR merges. Tasks 1–4 are done. What follows describes the work while #115 was open.
+
+The submodule pinned `c3ede5d`, which had `NFTDetector` but not `Detector::External`, the factory or the hooks. So:
 
 - **What can merge-ready without #115** (Tasks 1–3):
   - the worker module and its tests;
@@ -152,17 +154,17 @@ Harness from Stage A (`D:/kalwalt-github/WebAR-Canvas-runs/16-worker/`, outside 
 
 ### Task 1: The KPM worker module, tested in Node (no #115 needed)
 
-- [ ] `tests/kpm_worker_tests.cpp`, failing first. Loads `kpm_worker` the way the worker does (`kw_init` with the resized `camera_para.dat` param for 2000×1500, `kw_set_markers` with `/data/pinball.fset3`'s bytes at page 0) and checks:
+- [x] `tests/kpm_worker_tests.cpp`, failing first. Loads `kpm_worker` the way the worker does (`kw_init` with the resized `camera_para.dat` param for 2000×1500, `kw_set_markers` with `/data/pinball.fset3`'s bytes at page 0) and checks:
   - `kw_match` on `pinball-demo.jpg`'s luma finds page 0 with a pose close to the one `nft_tests` gets (z < 0);
   - a blank frame finds nothing;
   - skipping page 0 finds nothing.
-- [ ] `src/worker/kpm_worker.cpp`, the `kpm_worker` target (flags above), wired into `scripts/test-wasm.sh`.
-- [ ] Both renderers: `node build-docker.js --renderer sokol --test` and `node build-docker.js --test` green.
-- [ ] Commit: `feat(nft): add a KPM-only worker module`.
+- [x] `src/worker/kpm_worker.cpp`, the `kpm_worker` target (flags above), wired into `scripts/test-wasm.sh`.
+- [x] Both renderers: `node build-docker.js --renderer sokol --test` and `node build-docker.js --test` green.
+- [x] Commit: `feat(nft): add a KPM-only worker module`.
 
 ### Task 2: `WorkerKpmDetector` against a fake transport (no #115 needed)
 
-- [ ] `nft_tests`, failing first, with a fake transport the test drives by hand:
+- [x] `nft_tests`, failing first, with a fake transport the test drives by hand:
   - start → result → collect;
   - a result never arrives twice;
   - `waitIdle()` then a late result: dropped, buffer back in the pool, next pass works (generation);
@@ -170,31 +172,31 @@ Harness from Stage A (`D:/kalwalt-github/WebAR-Canvas-runs/16-worker/`, outside 
   - no `ready` within the timeout → fallback; `error` → fallback; watchdog → fallback;
   - in fallback, `start()` returns true and a pose is collected on `pinball-demo.jpg`;
   - `kpmWorker = false` → fallback at once.
-- [ ] `src/nft/WorkerKpmDetector.{h,cpp}` and `src/nft/KpmTransport.h` (the interface: `init`, `markers`, `match`, `terminate`, and an inbox polled at `collect()`/`idle()`). The timeouts read a clock injected like `NFTTrackingConfig::clock`, so the tests control time.
+- [x] `src/nft/WorkerKpmDetector.{h,cpp}` and `src/nft/KpmTransport.h` (the interface: `init`, `markers`, `match`, `terminate`, and an inbox polled at `collect()`/`idle()`). The timeouts read a clock injected like `NFTTrackingConfig::clock`, so the tests control time.
   - The detector borrows a `KpmWorkerLink` owned by the caller (the transport, the start-up / worker / fallback state, the generation counter and the buffer pool), so the state outlives a detector, and takes a nullable `KpmHandle *` for the fallback. The fallback tests pass a handle built in the test from `camera_para.dat` and `pinball.fset3`, so they need no #115.
-- [ ] The hook overrides behind `WEBARKIT_NFT_HAS_EXTERNAL_DETECTOR`.
-- [ ] Commit: `feat(nft): add a worker-backed KPM detector with a main-thread fallback`.
+- [x] The hook overrides behind `WEBARKIT_NFT_HAS_EXTERNAL_DETECTOR`.
+- [x] Commit: `feat(nft): add a worker-backed KPM detector with a main-thread fallback`.
 
 ### Task 3: The browser transport and the build integration (no #115 needed)
 
-- [ ] `src/nft/WorkerTransport.cpp`: `EM_JS` glue that creates the `Worker`, posts messages with transfer lists, and delivers incoming messages into the detector's inbox through one exported C function. `src/worker/kpm_worker_main.js` on the worker side.
-- [ ] CMake: `WEBAR_KPM_WORKER`, the dependency, and the output names. `build-docker.js` needs no change: the worker is built with the main target.
-- [ ] `.github/workflows/build.yml`: the artifacts of both jobs include `videoTest.kpm.js/.wasm`. `.github/workflows/pages.yml`: the "Collect the site" step copies them.
-- [ ] `src/shell.html`: `?kpmWorker=0`.
-- [ ] A browser check with a test page that drives `WorkerTransport` directly against the real worker (init, markers, match on `pinball-demo.jpg`): a pose comes back; the buffer returns.
-- [ ] Commit: `feat(nft): run the KPM worker from the browser`.
+- [x] `src/nft/WorkerTransport.cpp`: `EM_JS` glue that creates the `Worker`, posts messages with transfer lists, and delivers incoming messages into the detector's inbox through one exported C function. `src/worker/kpm_worker_main.js` on the worker side.
+- [x] CMake: `WEBAR_KPM_WORKER`, the dependency, and the output names. `build-docker.js` needs no change: the worker is built with the main target.
+- [x] `.github/workflows/build.yml`: the artifacts of both jobs include `videoTest.kpm.js/.wasm`. `.github/workflows/pages.yml`: the "Collect the site" step copies them.
+- [x] `src/shell.html`: `?kpmWorker=0`.
+- [x] A browser check with a test page that drives `WorkerTransport` directly against the real worker (init, markers, match on `pinball-demo.jpg`): a pose comes back; the buffer returns.
+- [x] Commit: `feat(nft): run the KPM worker from the browser`.
 
 ### Task 4: Wire it into `ARNFTTracker` (needs #115; local WebARKitLib branch until it merges)
 
 **Gate:** Task 4 starts only when #115 is updated to the shape above and merged. Until then the work stops after Task 3.
 
-- [ ] `nft_tests`, failing first:
+- [x] `nft_tests`, failing first:
   - with `WEBAR_KPM_WORKER` and a fake transport injected through a test hook, `ARNFTTracker` tracks `pinball-demo.jpg`; the factory delivers the 2000×1500 camera and the core's KPM handle, `markersAdded` delivers page 0, and the pose matches the sync path within the filter's tolerance;
   - after a second `setup()` / `setupAR2()` with a marker already loaded, the new detector gets the new camera and every loaded marker at creation, with no respawned worker;
   - with the option off, behaviour is byte-for-byte today's (the existing tests unchanged).
-- [ ] `WorkerKpmDetector`: the constructor takes the camera from the factory and sends it through the link; the `cameraChanged` override written behind `WEBARKIT_NFT_HAS_EXTERNAL_DETECTOR` in Task 2 is removed, and `markersAdded` stays.
-- [ ] `ARNFTTracker`: the config is `singleThreadPreset()` with `detector = External` and the factory, with the tracker (which owns the `KpmWorkerLink` and its `WorkerTransport`) as context, when the option is on. The app's `EXPORTED_FUNCTIONS` gains `_webar_kpm_deliver`, `_malloc` and `_free`, now that `WorkerTransport` is linked in. The public API is unchanged.
-- [ ] Commit: `perf(nft): run KPM in a Web Worker`. The submodule bump comes as its own commit, only once #115 is merged.
+- [x] `WorkerKpmDetector`: the constructor takes the camera from the factory and sends it through the link; the `cameraChanged` override written behind `WEBARKIT_NFT_HAS_EXTERNAL_DETECTOR` in Task 2 is removed, and `markersAdded` stays.
+- [x] `ARNFTTracker`: the config is `singleThreadPreset()` with `detector = External` and the factory, with the tracker (which owns the `KpmWorkerLink` and its `WorkerTransport`) as context, when the option is on. The app's `EXPORTED_FUNCTIONS` gains `_webar_kpm_deliver`, `_malloc` and `_free`, now that `WorkerTransport` is linked in. The public API is unchanged.
+- [x] Commit: `perf(nft): run KPM in a Web Worker`. The submodule bump comes as its own commit, only once #115 is merged.
 
 ### Task 5: Measurements, docs, review, PR
 
