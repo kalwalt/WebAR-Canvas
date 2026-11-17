@@ -98,6 +98,27 @@ target_compile_options(ARNFTTracker PUBLIC
     "-Wno-return-type-c-linkage"
 )
 
+# --- The KPM-only worker module (issue #16): videoTest.kpm.js/.wasm ---
+# Runs the KPM detection pass in a Web Worker, with its own small WASM instance. No -g (it would
+# grow the module from 86 KB to 637 KB gzipped), no embedded files: the main instance sends the
+# camera and each marker's .fset3 bytes.
+set(KPM_WORKER_SOURCES src/worker/kpm_worker.cpp)
+add_executable(kpm_worker ${KPM_WORKER_SOURCES})
+target_include_directories(kpm_worker PRIVATE
+    ${WEBARKITLIB_DIR}/WebARKit/WebARKitTrackers/WebARKitNFT/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/worker
+)
+target_link_libraries(kpm_worker PRIVATE WebARKitNFT)
+set_target_properties(kpm_worker PROPERTIES OUTPUT_NAME "videoTest.kpm" SUFFIX ".js")
+target_link_options(kpm_worker PRIVATE
+    "-O3"
+    "-sENVIRONMENT=worker"
+    "-sALLOW_MEMORY_GROWTH=1"
+    "-sINITIAL_MEMORY=33554432"
+    "-sEXPORTED_FUNCTIONS=['_kw_init','_kw_add_marker','_kw_match','_kw_result_num','_kw_detections','_kw_detection_size','_malloc','_free']"
+    "-sEXPORTED_RUNTIME_METHODS=['HEAPU8','HEAP32','HEAPF32','HEAPF64']"
+)
+
 # --- Version header (WEBAR_CANVAS_VERSION_*), generated from project(VERSION) ---
 configure_file(
     ${CMAKE_CURRENT_SOURCE_DIR}/src/WebARCanvasVersion.h.in
@@ -219,6 +240,25 @@ if(WEBAR_CANVAS_BUILD_TESTS)
         "-sUSE_LIBJPEG=1"
         "-sUSE_ZLIB=1"
         # WebARKitLib's NFT fixtures: camera_para.dat, pinball.{iset,fset,fset3}, pinball-demo.jpg
+        "--embed-file=${WEBARKITLIB_DIR}/tests/data@/data"
+    )
+
+    # The KPM worker module's entry points, compiled into a Node runner on the same fixtures.
+    add_executable(kpm_worker_tests tests/kpm_worker_tests.cpp ${KPM_WORKER_SOURCES})
+    target_include_directories(kpm_worker_tests PRIVATE
+        ${WEBARKITLIB_DIR}/WebARKit/WebARKitTrackers/WebARKitNFT/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/worker
+    )
+    target_link_libraries(kpm_worker_tests PRIVATE WebARKitNFT)
+    set_target_properties(kpm_worker_tests PROPERTIES SUFFIX ".js")
+    target_link_options(kpm_worker_tests PRIVATE
+        "-sENVIRONMENT=node"
+        "-sEXIT_RUNTIME=1"
+        "-sASSERTIONS=1"
+        "-sALLOW_MEMORY_GROWTH=1"
+        "-sINITIAL_MEMORY=134217728"
+        "-sUSE_LIBJPEG=1"
+        "-sUSE_ZLIB=1"
         "--embed-file=${WEBARKITLIB_DIR}/tests/data@/data"
     )
 

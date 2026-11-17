@@ -1,5 +1,6 @@
 #!/bin/sh
-# Builds and runs the Node test runners: nft_tests (ARNFTTracker) and core_tests (src/core).
+# Builds and runs the Node test runners: nft_tests (ARNFTTracker), core_tests (src/core) and
+# kpm_worker_tests (the KPM worker module, src/worker), and builds the worker module itself.
 #
 # Run it inside the emscripten/emsdk image, as `node build-docker.js --test` and the CI do
 # (after scripts/build-host-tools.sh for the Filament renderer; sokol needs no host tools).
@@ -25,11 +26,15 @@ case "$build_dir" in
 esac
 sh "$root/scripts/build-wasm.sh" "$jobs" nft_tests
 sh "$root/scripts/build-wasm.sh" "$jobs" core_tests
+sh "$root/scripts/build-wasm.sh" "$jobs" kpm_worker_tests
+# The worker module itself, so a link failure shows here too (videoTest.kpm.js/.wasm).
+sh "$root/scripts/build-wasm.sh" "$jobs" kpm_worker
 
-# Run both runners even if the first fails; the exit code is the sum of their failures.
+# Run every runner even if one fails; the exit code is the sum of their failures.
 failures=0
 node "$build_dir/nft_tests.js" || failures=$((failures + $?))
 node "$build_dir/core_tests.js" || failures=$((failures + $?))
+node "$build_dir/kpm_worker_tests.js" || failures=$((failures + $?))
 # Exit codes are taken mod 256: cap the total so failures never read as success.
 [ "$failures" -gt 255 ] && failures=255
 exit "$failures"
