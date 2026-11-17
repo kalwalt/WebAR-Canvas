@@ -36,6 +36,7 @@ The submodule pins `c3ede5d`, which has `NFTDetector` but not `Detector::Externa
   - the JS transport and the build integration.
   - These compile and pass CI at the pinned commit. The hook overrides are written behind a feature macro (`WEBARKIT_NFT_HAS_EXTERNAL_DETECTOR`) that #115 defines and this repository only reads, so the code builds both before and after #115.
 - **What needs #115** (Task 4): selecting `Detector::External` in `ARNFTTracker` and receiving the hooks.
+  - **Task 4 does not start until #115 carries the fix below** ("Requirements to add to #115", item 1): `cameraChanged` delivered once to a freshly created detector. The core creates the detector lazily, in the first `addNFTMarkers()` after `setCamera()` / `setupAR2()`, so without it a worker-backed detector never learns any camera. Items 2 and 3 there are part of the same gate.
   - **Development:** a local WebARKitLib branch implementing #115, checked out in this worktree's `third_party/WebARKitLib` only, never pushed from here and never committed as the submodule pointer. Local builds use it; the branch's commits keep the pinned `c3ede5d`.
   - Implementing #115 itself is the maintainer's work upstream (or a separate upstream PR the maintainer requests). This plan only consumes it.
 - **Before the PR can merge:**
@@ -50,7 +51,13 @@ The submodule pins `c3ede5d`, which has `NFTDetector` but not `Detector::Externa
 - `NFTTrackingConfig::Detector::External`, `std::unique_ptr<NFTDetector> (*makeDetector)(void *user)`, `void *makeDetectorUser`.
 - `virtual void markersAdded(const std::vector<int> &pages, const std::vector<std::string> &datasetPathnames)`.
 - `virtual void cameraChanged(const ARParam &param)`. This repository asks #115 for an `ARParam` by value, already resized to the frame (the core calls `arParamChangeSize()` before it builds `paramLT`). A plain struct of a few hundred bytes, with no pointer into the core.
-- **One requirement to add to #115:** the core creates the detector lazily in the first `addNFTMarkers()`, after the camera is set. So `cameraChanged()` must also be called once on a newly created detector when a camera exists; otherwise a worker never learns the first camera. I'll raise this on #115 (a comment, the maintainer's call).
+### Requirements to add to #115 (the maintainer's call; I comment nowhere)
+
+Checked against the pinned core (`ARToolKitNFTCore.cpp` at `c3ede5d`): `setCamera()` (through `deleteCamera()`) and `setupAR2()` both destroy the detector, and `teardown()` does too. A live detector therefore never sees a camera change; every camera reaches a detector only at creation, in the next `addNFTMarkers()`.
+
+1. **`cameraChanged()` is called once on a freshly created detector**, before `markersAdded()`, with the current resized `ARParam`. This is the fix the maintainer asked to have in #115 before Task 4 starts. Since a live detector is never given a new camera, this creation-time call is in practice the only path.
+2. **The detector can reach the core's KPM handle** (for example a second factory argument, `KpmHandle *`). `kpmHandle` is private and the factory receives only `void *user`. The in-process fallback runs on that handle (see "Worker failure and fallback"), so without this the fallback would have to rebuild its own.
+3. **`markersAdded()` on a freshly created detector reports every loaded marker, not only the new batch.** After `setupAR2()` the core hands its new KPM handle all markers loaded so far (`refDataSetAll` plus the batch), but a hook that reports only the batch would leave a recreated worker without the earlier ones. Either the hook reports the full set on creation, or the core calls it once with the existing set before the batch.
 
 ## Design
 
@@ -80,7 +87,8 @@ All messages are plain objects. Every binary payload is an `ArrayBuffer` in the 
 - On `markersAdded(pages, paths)`, the detector reads `<path>.fset3` from the main instance's file system (`FS.readFile`) and sends the bytes. The worker writes them into its own in-memory FS, or hands them straight to KPM, and loads them with the core's page numbers.
 - The camera goes the same way: `cameraChanged(param)` gives the already resized `ARParam` by value, the detector serialises its fields, and the worker builds `ARParamLT` and the KPM handle from them.
 - The worker never opens a URL except its own `.wasm`.
-- **Order:** `init` → `ready` → `markers`, then passes. A `markers` message during a pass is queued behind the pass. A camera change restarts the sequence: `init` again, then all markers again.
+- **Order:** `init` → `ready` → `markers`, then passes. A `markers` message during a pass is queued behind the pass.
+- **Detector recreation:** the core destroys the detector on every `setCamera()` / `setupAR2()` and creates a new one in the next `addNFTMarkers()`. The worker, its transport and the fallback state are owned by `ARNFTTracker` (passed as `makeDetectorUser`) and outlive detectors, so a recreation does not respawn the worker or rerun the 5 s start-up. A new detector sends `init` again (the camera may have changed) and then all markers again, which the worker loads into a fresh KPM handle.
 
 **Luma buffer ownership:**
 - The core's `videoLuma` stays the core's. `start(luma, ...)` copies it into a pooled `ArrayBuffer` (two buffers, ping-pong) and transfers that buffer.
@@ -107,8 +115,9 @@ All messages are plain objects. Every binary payload is an `ArrayBuffer` in the 
 - the page sets `Module.webarConfig.kpmWorker = false` (also used for A/B measurements).
 
 **In `Fallback`:**
-- The worker is terminated, and the detector creates its own in-process KPM handle from the last `ARParam` and the `.fset3` files of the accepted markers (read from the main FS).
-- `start()` then runs `kpmMatching()` synchronously and returns true, exactly like `SyncKpmDetector`: today's behaviour, with today's stall.
+- The worker is terminated, and the detector runs its passes on **the core's own KPM handle**, which the core builds in `setupAR2()` whatever the detector type, and fills with every accepted marker in `addNFTMarkers()`. No second handle, no re-reading of `.fset3`, no page numbering of our own.
+- `start()` then runs `kpmMatching()` on that handle synchronously and returns true, exactly like `SyncKpmDetector`: today's behaviour, with today's stall.
+- The detector receives the handle as a nullable `KpmHandle *` (Task 2 tests pass it directly; in the app it comes from #115, requirement 2). With a null handle the fallback has nothing to run on: it logs it and detects nothing, rather than crashing.
 - The switch is logged once: `KPM worker unavailable (<reason>): running KPM on the main thread`.
 - `Fallback` is final for the session (no retry loop).
 
@@ -117,8 +126,8 @@ All messages are plain objects. Every binary payload is an `ArrayBuffer` in the 
 ### Memory
 
 - **Worker:** 32 MB initial memory (grows if needed), its 160 KB of code, and the KPM reference data. For pinball, the `.fset3` is 640,324 B on disk; the loaded data is of the same order (to be measured in Task 5 from the worker heap). It grows linearly per marker (kuva's `.fset3` is 343 KB).
-- **Main instance:** unchanged. The core still loads every marker's KPM data into its own KPM handle, which the `External` detector does not use. That duplicate is the core's behaviour; avoiding it would be an upstream follow-up, not this issue. The `.fset3` bytes are read and copied once per marker at start-up, then released.
-- **In `Fallback`:** the detector's own KPM handle adds one more copy of the reference data on the main side, only after a failure.
+- **Main instance:** unchanged. The core still loads every marker's KPM data into its own KPM handle (`createKpmHandle()` in `setupAR2()` runs whatever the detector type), and while the worker runs, that handle is idle. **This is not a free upstream optimisation:** the idle handle is exactly what the in-process fallback runs on. If the core stopped building it for `External`, the fallback to a synchronous pass would no longer work without rebuilding a handle on the main side after a failure. The two ideas conflict, and this plan keeps the handle. The `.fset3` bytes are read and copied once per marker for the worker, then released.
+- **In `Fallback`:** no extra memory on the main side; the worker's memory is released when it is terminated.
 
 ### Runtime switch and build option
 
@@ -161,6 +170,7 @@ Harness from Stage A (`D:/kalwalt-github/WebAR-Canvas-runs/16-worker/`, outside 
   - in fallback, `start()` returns true and a pose is collected on `pinball-demo.jpg`;
   - `kpmWorker = false` → fallback at once.
 - [ ] `src/nft/WorkerKpmDetector.{h,cpp}` and `src/nft/KpmTransport.h` (the interface: `init`, `markers`, `match`, `terminate`, and an inbox polled at `collect()`/`idle()`). The timeouts read a clock injected like `NFTTrackingConfig::clock`, so the tests control time.
+  - The detector borrows a `KpmWorkerLink` owned by the caller (the transport, the start-up / worker / fallback state, the generation counter and the buffer pool), so the state outlives a detector, and takes a nullable `KpmHandle *` for the fallback. The fallback tests pass a handle built in the test from `camera_para.dat` and `pinball.fset3`, so they need no #115.
 - [ ] The hook overrides behind `WEBARKIT_NFT_HAS_EXTERNAL_DETECTOR`.
 - [ ] Commit: `feat(nft): add a worker-backed KPM detector with a main-thread fallback`.
 
@@ -174,6 +184,8 @@ Harness from Stage A (`D:/kalwalt-github/WebAR-Canvas-runs/16-worker/`, outside 
 - [ ] Commit: `feat(nft): run the KPM worker from the browser`.
 
 ### Task 4: Wire it into `ARNFTTracker` (needs #115; local WebARKitLib branch until it merges)
+
+**Gate:** Task 4 starts only when #115 carries requirement 1 (`cameraChanged` on a freshly created detector), together with requirements 2 and 3. Until then the work stops after Task 3.
 
 - [ ] `nft_tests`, failing first:
   - with `WEBAR_KPM_WORKER` and a fake transport injected through a test hook, `ARNFTTracker` tracks `pinball-demo.jpg`, the hooks deliver page 0 and the 2000×1500 camera, and the pose matches the sync path within the filter's tolerance;
@@ -216,6 +228,6 @@ I cannot test a real camera or a phone. The PR will carry this, refined with the
 ## Not in this plan
 
 - The threaded (pthreads) option: kept as the proven fallback (spike diff outside the repository). It is used only if #115 stalls, after a new decision.
-- Removing the core's own unused KPM data in `External` mode (upstream follow-up).
+- Removing the core's KPM handle in `External` mode. It is not unused: it is the fallback's handle, so removing it conflicts with the fallback (see "Memory").
 - `-g` on the main app: measured separately, its own decision.
 - Moving AR2 tracking or the capture off the main thread.
