@@ -6,6 +6,8 @@
 WorkerKpmDetector::WorkerKpmDetector(KpmWorkerLink &link, KpmHandle *coreKpmHandle, int frameSize)
     : m_link(&link), m_sync(coreKpmHandle), m_hasCoreHandle(coreKpmHandle != nullptr), m_frameSize(frameSize) {}
 
+WorkerKpmDetector::~WorkerKpmDetector() { m_link->abandonPass(); }
+
 bool WorkerKpmDetector::collect(std::vector<NFTDetection> &out, int &resultNum) {
   m_link->poll();
   if (m_link->state() == KpmWorkerLink::State::Fallback) return m_sync.collect(out, resultNum);
@@ -15,7 +17,7 @@ bool WorkerKpmDetector::collect(std::vector<NFTDetection> &out, int &resultNum) 
 bool WorkerKpmDetector::idle() const {
   m_link->poll();
   if (m_link->state() == KpmWorkerLink::State::Fallback) return true;
-  return !m_link->passRunning();
+  return !m_link->passRunning() && !m_link->hasResult();
 }
 
 bool WorkerKpmDetector::start(ARUint8 *luma, const int *skipPages, int skipNum) {
@@ -39,6 +41,8 @@ bool WorkerKpmDetector::start(ARUint8 *luma, const int *skipPages, int skipNum) 
 void WorkerKpmDetector::waitIdle() { m_link->abandonPass(); }
 
 #ifdef WEBARKIT_NFT_HAS_EXTERNAL_DETECTOR
+// Called from inside the core's addNFTMarkers(): it only reads files and messages the worker,
+// and never calls back into the core (NFTDetector::markersAdded()).
 void WorkerKpmDetector::markersAdded(const std::vector<int> &pages,
                                      const std::vector<std::string> &datasetPathnames) {
   std::vector<KpmMarkerData> data;

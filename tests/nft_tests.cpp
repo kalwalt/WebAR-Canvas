@@ -6,6 +6,7 @@
 #include "KpmTransport.h"
 #include "KpmWorkerLink.h"
 #include "WorkerKpmDetector.h"
+#include "kpm_worker.h"
 
 #include <AR2/imageFormat.h>
 #include <KPM/kpm.h>
@@ -14,6 +15,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
@@ -308,7 +310,8 @@ static void worker_pass_start_result_collect() {
   int resultNum = -1;
   CHECK(!d.collect(out, resultNum));
   f.link.onResult(f.transport->matches[0].gen, 3, {detectionAt(0)});
-  CHECK(d.idle());
+  // A finished pass that has not been collected still counts as running (NFTDetector::idle()).
+  CHECK(!d.idle());
   CHECK(d.collect(out, resultNum));
   CHECK(out.size() == 1 && out[0].page == 0 && resultNum == 3);
   // A result is collected once.
@@ -551,6 +554,154 @@ static void camera_copies_the_param() {
   CHECK(c.dist[0] == param.dist_factor[0] && c.dist[8] == param.dist_factor[8]);
 }
 
+static void destroying_the_detector_abandons_its_pass() {
+  LinkFixture f;
+  f.link.onReady();
+  std::vector<unsigned char> luma(kFrame, 0);
+  int gen = -1;
+  {
+    WorkerKpmDetector d(f.link, nullptr, kFrame);
+    d.start(luma.data(), nullptr, 0);
+    gen = f.transport->matches.back().gen;
+  }  // the core's teardown() destroys a detector instead of calling waitIdle()
+  CHECK(!f.link.passRunning());
+  f.link.onResult(gen, 1, {detectionAt(0)});
+  WorkerKpmDetector next(f.link, nullptr, kFrame);
+  std::vector<NFTDetection> out;
+  int resultNum = -1;
+  CHECK(next.idle() && !next.collect(out, resultNum));
+}
+
+#if defined(WEBAR_KPM_WORKER) && defined(WEBARKIT_NFT_HAS_EXTERNAL_DETECTOR)
+
+/**
+ * A transport that runs the worker module's entry points in this process, as the worker would,
+ * and holds its answers until pump(): the core sees them a frame later, as from a real worker.
+ */
+struct LoopbackTransport : KpmTransport {
+  KpmWorkerLink *link = nullptr;
+  bool available = true;
+  int starts = 0;
+  int matches = 0;
+  int terminated = 0;
+  std::vector<KpmCamera> cameras;
+  std::vector<std::vector<int>> markerPages;
+  std::vector<std::function<void()>> answers;
+
+  void attach(KpmWorkerLink *l) override { link = l; }
+  bool start() override {
+    ++starts;
+    return available;
+  }
+  void sendInit(const KpmCamera &c) override {
+    cameras.push_back(c);
+    const int r = kw_init(c.xsize, c.ysize, c.mat, c.dist, c.distFunctionVersion);
+    answers.push_back([this, r] {
+      if (r < 0) link->onError("kw_init");
+      else link->onReady();
+    });
+  }
+  void sendMarkers(std::vector<KpmMarkerData> &markers) override {
+    std::vector<int> pages;
+    for (KpmMarkerData &m : markers) {
+      pages.push_back(m.page);
+      if (kw_add_marker(m.fset3.data(), static_cast<int>(m.fset3.size()), m.page) < 0) {
+        answers.push_back([this] { link->onError("kw_add_marker"); });
+      }
+    }
+    markerPages.push_back(pages);
+  }
+  void sendMatch(int gen, const unsigned char *luma, int, const int *skipPages, int skipNum) override {
+    ++matches;
+    const int found = kw_match(luma, skipPages, skipNum);
+    std::vector<NFTDetection> detections;
+    if (found > 0) detections.assign(kw_detections(), kw_detections() + found);
+    const int resultNum = kw_result_num();
+    answers.push_back([this, gen, resultNum, detections] { link->onResult(gen, resultNum, detections); });
+  }
+  void terminate() override {
+    ++terminated;
+    answers.clear();
+  }
+  /** Delivers the answers so far, as the browser's event loop does between frames. */
+  void pump() {
+    std::vector<std::function<void()>> now;
+    now.swap(answers);
+    for (auto &a : now) a();
+  }
+};
+
+/** setup() for 2000x1500, setupAR2(), pinball, pinball-demo.jpg; then frames until tracked. */
+static bool trackThroughTransport(ARNFTTracker &t, LoopbackTransport *transport, int frames = 60) {
+  const int cam = t.loadCamera("/data/camera_para.dat");
+  if (cam < 0 || t.setup(2000, 1500, cam) != 0 || t.setupAR2() != 0) return false;
+  if (t.loadMarker("/data/pinball") != 0) return false;
+  if (!fillFromJpeg(t, "/data/pinball-demo.jpg")) return false;
+  for (int i = 0; i < frames && !t.isMarkerTracked(0); i++) {
+    t.update();
+    transport->pump();
+  }
+  return t.isMarkerTracked(0);
+}
+
+static void tracker_tracks_through_the_worker() {
+  LoopbackTransport *transport = new LoopbackTransport;
+  ARNFTTracker t{std::unique_ptr<KpmTransport>(transport)};
+  CHECK(trackThroughTransport(t, transport));
+  // The factory delivered the resized camera; markersAdded() the core's page.
+  CHECK(transport->starts == 1 && transport->cameras.size() == 1);
+  CHECK(!transport->cameras.empty() && transport->cameras[0].xsize == 2000 && transport->cameras[0].ysize == 1500);
+  CHECK((transport->markerPages == std::vector<std::vector<int>>{{0}}));
+  CHECK(transport->matches >= 1);
+  // The same pose as the in-process path, within a millimetre.
+  ARNFTTracker sync;
+  CHECK(trackPinball(sync));
+  for (int i = 0; i < 3; i++) {
+    t.update();
+    transport->pump();
+    sync.update();
+  }
+  float a[16], b[16];
+  t.getTransformMatrix(0, a);
+  sync.getTransformMatrix(0, b);
+  CHECK(std::fabs(a[12] - b[12]) < 1.0f && std::fabs(a[13] - b[13]) < 1.0f && std::fabs(a[14] - b[14]) < 1.0f);
+}
+
+static void recreated_detector_gets_camera_and_every_marker() {
+  LoopbackTransport *transport = new LoopbackTransport;
+  ARNFTTracker t{std::unique_ptr<KpmTransport>(transport)};
+  CHECK(trackThroughTransport(t, transport));
+  // A second marker later: markersAdded() gets the new batch only.
+  CHECK(t.loadMarker("/data/pinball") == 1);
+  CHECK(transport->markerPages.size() == 2 && transport->markerPages[1] == std::vector<int>{1});
+  // setupAR2() destroys the detector; the next load creates one with the camera and all markers.
+  CHECK(t.setupAR2() == 0);
+  CHECK(t.loadMarkers({}).empty());
+  CHECK(transport->starts == 1);  // the worker is not respawned
+  CHECK(transport->cameras.size() == 2 && transport->cameras[1].xsize == 2000);
+  CHECK(transport->markerPages.size() == 3 && transport->markerPages[2] == (std::vector<int>{0, 1}));
+  // Detection works on the new detector.
+  std::memset(t.getVideoFrame(), 0, t.getVideoFrameSize());
+  t.update();
+  CHECK(!t.isMarkerTracked(0));
+  CHECK(fillFromJpeg(t, "/data/pinball-demo.jpg"));
+  for (int i = 0; i < 60 && !t.isMarkerTracked(0) && !t.isMarkerTracked(1); i++) {
+    t.update();
+    transport->pump();
+  }
+  CHECK(t.isMarkerTracked(0) || t.isMarkerTracked(1));
+}
+
+static void tracker_falls_back_to_the_core_handle() {
+  LoopbackTransport *transport = new LoopbackTransport;
+  transport->available = false;  // as when the worker script cannot be created
+  ARNFTTracker t{std::unique_ptr<KpmTransport>(transport)};
+  CHECK(trackThroughTransport(t, transport));
+  CHECK(transport->matches == 0 && transport->cameras.empty());
+}
+
+#endif  // WEBAR_KPM_WORKER && WEBARKIT_NFT_HAS_EXTERNAL_DETECTOR
+
 struct TestCase {
   const char *name;
   void (*run)();
@@ -582,6 +733,12 @@ static const TestCase kTests[] = {
     {"fallback_without_a_handle_detects_nothing", fallback_without_a_handle_detects_nothing},
     {"reads_marker_data_from_the_file_system", reads_marker_data_from_the_file_system},
     {"camera_copies_the_param", camera_copies_the_param},
+    {"destroying_the_detector_abandons_its_pass", destroying_the_detector_abandons_its_pass},
+#if defined(WEBAR_KPM_WORKER) && defined(WEBARKIT_NFT_HAS_EXTERNAL_DETECTOR)
+    {"tracker_tracks_through_the_worker", tracker_tracks_through_the_worker},
+    {"recreated_detector_gets_camera_and_every_marker", recreated_detector_gets_camera_and_every_marker},
+    {"tracker_falls_back_to_the_core_handle", tracker_falls_back_to_the_core_handle},
+#endif
 };
 
 int main() {

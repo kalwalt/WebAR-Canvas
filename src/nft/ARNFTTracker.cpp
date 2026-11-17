@@ -1,8 +1,57 @@
 #include "ARNFTTracker.h"
+#include "KpmWorkerLink.h"
+#include "WorkerKpmDetector.h"
 #include <AR/paramGL.h>
 #include <chrono>
 
-ARNFTTracker::ARNFTTracker() {
+#if defined(WEBAR_KPM_WORKER) && defined(WEBARKIT_NFT_HAS_EXTERNAL_DETECTOR)
+#define WEBAR_USE_KPM_WORKER 1
+#include "WorkerTransport.h"
+#endif
+
+NFTTrackingConfig ARNFTTracker::coreConfig() {
+    NFTTrackingConfig config = singleThreadPreset();
+#ifdef WEBAR_USE_KPM_WORKER
+    config.detector = NFTTrackingConfig::Detector::External;
+    config.makeDetector = &ARNFTTracker::makeKpmDetector;
+    config.makeDetectorUser = this;
+#endif
+    return config;
+}
+
+// The core's factory: called in the first addNFTMarkers() after every setupAR2() (and so after
+// every camera change), with the core's KPM handle and the resized camera. The worker starts
+// over with this camera; the markers follow through markersAdded().
+std::unique_ptr<NFTDetector> ARNFTTracker::makeKpmDetector(void *user, KpmHandle *kpm, const ARParam &camera) {
+    ARNFTTracker *self = static_cast<ARNFTTracker *>(user);
+    if (!self || !self->kpmLink) return nullptr;
+    self->kpmLink->setCamera(kpmCameraFromParam(camera));
+    return std::unique_ptr<NFTDetector>(new WorkerKpmDetector(*self->kpmLink, kpm, camera.xsize * camera.ysize));
+}
+
+ARNFTTracker::ARNFTTracker()
+#ifdef WEBAR_USE_KPM_WORKER
+    : ARNFTTracker(std::unique_ptr<KpmTransport>(new WorkerTransport()))
+#endif
+{
+#ifdef WEBAR_USE_KPM_WORKER
+    // The page can force the main-thread path (Module.webarConfig.kpmWorker = false, ?kpmWorker=0).
+    if (!WorkerTransport::enabledByPage() && kpmLink) kpmLink->fallBack("disabled by the page");
+#else
+    initCore();
+#endif
+}
+
+ARNFTTracker::ARNFTTracker(std::unique_ptr<KpmTransport> kpmTransport) {
+#ifdef WEBAR_USE_KPM_WORKER
+    kpmLink.reset(new KpmWorkerLink(std::move(kpmTransport), nullptr, true));
+#else
+    (void)kpmTransport;
+#endif
+    initCore();
+}
+
+void ARNFTTracker::initCore() {
     core.setContinuousDetection(continuousDetection);
     core.setDetectionInterval(detectionIntervalMs);
     core.setFiltering(withFiltering);

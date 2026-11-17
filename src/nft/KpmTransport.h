@@ -27,9 +27,14 @@ struct KpmMarkerData {
   std::vector<unsigned char> fset3;
 };
 
+class KpmWorkerLink;
+
 class KpmTransport {
  public:
   virtual ~KpmTransport() = default;
+
+  /** The link that receives ready / result / error; KpmWorkerLink's constructor calls it. */
+  virtual void attach(KpmWorkerLink * /*link*/) {}
 
   /** Starts the worker. @return false when no worker can be created (no Worker, bad URL known at once) */
   virtual bool start() = 0;

@@ -4,7 +4,7 @@
 // The browser's KpmTransport (issue #16): a Web Worker running videoTest.kpm.js, driven with
 // postMessage and transferable ArrayBuffers (no SharedArrayBuffer, no isolation needed).
 //
-// Messages from the worker reach the KpmWorkerLink set with setLink() on the main thread, in the
+// Messages from the worker reach the KpmWorkerLink that attached it, on the main thread, in the
 // browser's event loop, between frames. The luma copies travel in a pool of two ArrayBuffers that
 // go to the worker with match and come back with result.
 
@@ -18,8 +18,7 @@ class WorkerTransport final : public KpmTransport {
   explicit WorkerTransport(const char *url = nullptr);
   ~WorkerTransport() override;
 
-  /** The link that receives ready / result / error; must be set before start(). */
-  void setLink(KpmWorkerLink *link) { m_link = link; }
+  void attach(KpmWorkerLink *link) override { m_link = link; }
 
   bool start() override;
   void sendInit(const KpmCamera &camera) override;

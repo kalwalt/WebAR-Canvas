@@ -84,6 +84,15 @@ set(WEBARKIT_EXTRA_SOURCES
     ${WEBARKITLIB_DIR}/WebARKit/WebARKitVideoLuma.cpp
 )
 
+# The KPM worker (issue #16): KPM detection in a Web Worker, with videoTest.kpm.js/.wasm built
+# with the app and deployed next to it (four files). OFF builds the app alone, with the
+# in-process detector, exactly as before issue #16.
+option(WEBAR_KPM_WORKER "Run KPM detection in a Web Worker (videoTest.kpm.js/.wasm)" ON)
+set(WEBAR_KPM_WORKER_EXPORTS "")
+if(WEBAR_KPM_WORKER)
+    set(WEBAR_KPM_WORKER_EXPORTS ",'_webar_kpm_deliver','_malloc','_free'")
+endif()
+
 add_library(ARNFTTracker STATIC
     src/nft/ARNFTTracker.cpp
     # The worker-backed KPM detector and its main-thread fallback (issue #16)
@@ -99,6 +108,9 @@ target_include_directories(ARNFTTracker PUBLIC
 )
 
 target_link_libraries(ARNFTTracker PUBLIC WebARKitNFT)
+if(WEBAR_KPM_WORKER)
+    target_compile_definitions(ARNFTTracker PUBLIC WEBAR_KPM_WORKER=1)
+endif()
 
 target_compile_options(ARNFTTracker PUBLIC
     "-Wno-warn-absolute-paths"
@@ -208,7 +220,8 @@ target_link_options(${PROJECT_NAME} PRIVATE
     "-lhtml5"
     "-lGL" # This links the native WebGL of Emscripten
     # webar_load_model / webar_place_model are EMSCRIPTEN_KEEPALIVE; pages call them with ccall.
-    "-sEXPORTED_FUNCTIONS=['_main','_webar_load_model','_webar_place_model']"
+    # With the KPM worker, WorkerTransport's JavaScript calls webar_kpm_deliver, malloc and free.
+    "-sEXPORTED_FUNCTIONS=['_main','_webar_load_model','_webar_place_model'${WEBAR_KPM_WORKER_EXPORTS}]"
     "-sEXPORTED_RUNTIME_METHODS=['GL','UTF8ToString','ccall','FS_createDataFile']"
     "--shell-file=${CMAKE_CURRENT_SOURCE_DIR}/src/shell.html"
     "--embed-file=${CMAKE_CURRENT_SOURCE_DIR}/assets/camera_para.dat@/assets/camera_para.dat"
@@ -220,9 +233,6 @@ target_link_options(${PROJECT_NAME} PRIVATE
 
 add_dependencies(${PROJECT_NAME} ARNFTTracker)
 
-# The KPM worker module is built with the app and lands next to it (videoTest.kpm.js/.wasm), so
-# deployments ship four files. OFF builds the app alone, exactly as before issue #16.
-option(WEBAR_KPM_WORKER "Build the KPM worker module (videoTest.kpm.js/.wasm) with the app" ON)
 if(WEBAR_KPM_WORKER)
     add_dependencies(${PROJECT_NAME} kpm_worker)
 endif()
@@ -246,10 +256,14 @@ endif()
 # --- Node test runners (scripts/test-wasm.sh, node build-docker.js --test) ---
 option(WEBAR_CANVAS_BUILD_TESTS "Build the Node test runners (nft_tests, core_tests)" OFF)
 if(WEBAR_CANVAS_BUILD_TESTS)
-    add_executable(nft_tests tests/nft_tests.cpp)
+    # kpm_worker.cpp too: a loopback transport runs the worker's entry points in-process.
+    add_executable(nft_tests tests/nft_tests.cpp ${KPM_WORKER_SOURCES})
+    target_include_directories(nft_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/worker)
     target_link_libraries(nft_tests PRIVATE ARNFTTracker)
     set_target_properties(nft_tests PROPERTIES SUFFIX ".js")
     target_link_options(nft_tests PRIVATE
+        # WorkerTransport's JavaScript (linked through ARNFTTracker) calls malloc and free.
+        "-sEXPORTED_FUNCTIONS=['_main'${WEBAR_KPM_WORKER_EXPORTS}]"
         "-sENVIRONMENT=node"
         "-sEXIT_RUNTIME=1"
         "-sASSERTIONS=1"

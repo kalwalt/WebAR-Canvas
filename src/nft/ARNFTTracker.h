@@ -9,6 +9,8 @@
 #include <WebARKitTrackers/WebARKitNFT/ARToolKitNFTCore.h>
 #include <WebARKitVideoLuma.h>
 
+#include "KpmTransport.h"
+
 constexpr int NFT_PAGES_MAX = PAGES_MAX;
 
 struct NFTMarkerData {
@@ -38,6 +40,8 @@ struct NFTUpdateTimings {
 class ARNFTTracker {
 public:
     ARNFTTracker();
+    /** With the KPM worker reached through this transport (tests); the default is the browser's Web Worker. */
+    explicit ARNFTTracker(std::unique_ptr<KpmTransport> kpmTransport);
     ~ARNFTTracker();
 
     // Prevent copying
@@ -110,7 +114,16 @@ public:
     int getLogLevel() const;
 
 private:
-    ARToolKitNFTCore core{singleThreadPreset(), true};
+    // The core's settings: singleThreadPreset(), with the KPM detector in a Web Worker
+    // (Detector::External and makeKpmDetector) when built with WEBAR_KPM_WORKER.
+    NFTTrackingConfig coreConfig();
+    void initCore();
+    static std::unique_ptr<NFTDetector> makeKpmDetector(void *user, KpmHandle *kpm, const ARParam &camera);
+
+    // The KPM worker's state, shared by the detectors the core creates; declared before core so
+    // it outlives the core's last detector. Null without WEBAR_KPM_WORKER.
+    std::unique_ptr<class KpmWorkerLink> kpmLink;
+    ARToolKitNFTCore core{coreConfig(), true};
     int coreId = -1;
 
     int width = 0;

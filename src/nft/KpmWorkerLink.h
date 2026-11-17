@@ -49,6 +49,8 @@ class KpmWorkerLink {
   void poll();
   /** True while a pass sent to the worker has not answered. */
   bool passRunning() const { return m_passRunning; }
+  /** True while a finished pass's result waits to be taken. */
+  bool hasResult() const { return m_hasResult; }
   /** Sends a pass when the worker is ready and idle. @return true when it was sent */
   bool startPass(const unsigned char *luma, int size, const int *skipPages, int skipNum);
   /** Takes the current pass's result, once. */

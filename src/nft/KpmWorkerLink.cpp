@@ -17,6 +17,7 @@ KpmCamera kpmCameraFromParam(const ARParam &param) {
 
 KpmWorkerLink::KpmWorkerLink(std::unique_ptr<KpmTransport> transport, double (*clock)(), bool enabled)
     : m_transport(std::move(transport)), m_clock(clock ? clock : &nftDefaultClockMs) {
+  if (m_transport) m_transport->attach(this);
   if (!enabled) {
     fallBack("disabled by the page");
   } else if (!m_transport) {

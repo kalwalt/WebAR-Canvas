@@ -68,7 +68,6 @@ EMSCRIPTEN_KEEPALIVE int kwb_start(const char *url, int enabled) {
 
   WorkerTransport *transport = new WorkerTransport(url);
   gLink.reset(new KpmWorkerLink(std::unique_ptr<KpmTransport>(transport), nullptr, enabled != 0));
-  transport->setLink(gLink.get());
   gDetector.reset(new WorkerKpmDetector(*gLink, gCoreKpm, kWidth * kHeight));
 
   gLink->setCamera(kpmCameraFromParam(param));

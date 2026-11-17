@@ -23,8 +23,11 @@ class WorkerKpmDetector final : public NFTDetector {
    * @param frameSize bytes of a luma frame (width * height)
    */
   WorkerKpmDetector(KpmWorkerLink &link, KpmHandle *coreKpmHandle, int frameSize);
+  /** Abandons a running pass, as waitIdle() does: the core destroys detectors instead of waiting. */
+  ~WorkerKpmDetector() override;
 
   bool collect(std::vector<NFTDetection> &out, int &resultNum) override;
+  /** False while a pass runs in the worker, and while its result waits to be collected. */
   bool idle() const override;
   bool start(ARUint8 *luma, const int *skipPages, int skipNum) override;
   /** Does not block: abandons the running pass (its late result is dropped by generation). */
