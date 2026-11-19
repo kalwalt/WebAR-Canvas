@@ -233,7 +233,9 @@ target_link_options(${PROJECT_NAME} PRIVATE
 
 # --- Debug information (#23) ---
 # OFF is the published build: what CI tests and Pages deploys. ON links the app with -g, which keeps
-# DWARF and function names for readable stack traces but makes the download several times larger.
+# function names for readable stack traces but makes the download several times larger. -g is a
+# link option only, so there are no source lines for this repository's code (only for libc/libc++).
+# CI and Pages check the result with scripts/check-wasm-debug.js.
 # scripts/build-wasm.sh passes it on every configure (WEBAR_DEBUG_INFO, node build-docker.js --debug).
 # The KPM worker module never gets -g (see kpm_worker above).
 option(WEBAR_DEBUG_INFO "Link the app with -g (debug information, for development only)" OFF)

@@ -64,6 +64,9 @@ jobs:
       - name: Build WebAR-Canvas
         run: sh scripts/build-wasm.sh
 
+      - name: Check that the published build carries no debug information (#23)
+        run: node scripts/check-wasm-debug.js "${BUILD_DIR:-build-wasm}/videoTest.wasm" "${BUILD_DIR:-build-wasm}/videoTest.kpm.wasm"
+
       # videoTest.html is also published as index.html, so the site root opens the app.
       - name: Collect the site
         run: |

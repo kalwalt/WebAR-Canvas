@@ -47,7 +47,8 @@ emcmake cmake -S "$root" -B "$build_dir" -G "$generator" \
   -DWEBGL=1 \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_SYSTEM_NAME=Emscripten \
-  -DWEBAR_RENDERER="$renderer"   -DWEBAR_DEBUG_INFO="$debug_info" \
+  -DWEBAR_RENDERER="$renderer" \
+  -DWEBAR_DEBUG_INFO="$debug_info" \
   $matc_option \
   -DWEBAR_CANVAS_BUILD_TESTS=ON
 cmake --build "$build_dir" -j "$jobs" --target "$target"
