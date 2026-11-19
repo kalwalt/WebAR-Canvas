@@ -23,8 +23,8 @@ jobs:
         with:
           submodules: true
 
-      - name: Test the build runner's checks and the Claude Code hook
-        run: node --test scripts/build-docker.test.js .claude/hooks/guard-submodules.test.js
+      - name: Test the build runner's checks, the debug-information check and the Claude Code hook
+        run: node --test scripts/build-docker.test.js scripts/check-wasm-debug.test.js .claude/hooks/guard-submodules.test.js
 
       - name: Read the Filament submodule commit
         id: filament
@@ -51,6 +51,9 @@ jobs:
 
       - name: Build WebAR-Canvas
         run: sh scripts/build-wasm.sh
+
+      - name: Check that the published build carries no debug information (#23)
+        run: node scripts/check-wasm-debug.js "${BUILD_DIR:-build-wasm}/videoTest.wasm" "${BUILD_DIR:-build-wasm}/videoTest.kpm.wasm"
 
       - name: Run the tests (nft_tests, core_tests, kpm_worker_tests)
         run: sh scripts/test-wasm.sh
@@ -91,6 +94,9 @@ jobs:
 
       - name: Build WebAR-Canvas
         run: sh scripts/build-wasm.sh
+
+      - name: Check that the published build carries no debug information (#23)
+        run: node scripts/check-wasm-debug.js "${BUILD_DIR:-build-wasm}/videoTest.wasm" "${BUILD_DIR:-build-wasm}/videoTest.kpm.wasm"
 
       - name: Run the tests (nft_tests, core_tests, kpm_worker_tests)
         run: sh scripts/test-wasm.sh

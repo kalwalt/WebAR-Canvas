@@ -50,7 +50,7 @@ The README section "Developing Your Own AR Application" has a complete example, 
 
 ## Publish on GitHub Pages
 
-The workflow `.github/workflows/pages.yml` builds the app in the same container as the CI build (`emscripten/emsdk:4.0.17`), publishes `videoTest.html`, `videoTest.js`, `videoTest.wasm` and the KPM worker's `videoTest.kpm.js` and `videoTest.kpm.wasm` (with `videoTest.html` also as `index.html`, so the site root opens the app), and deploys them to GitHub Pages. Hosting the app elsewhere, copy the worker's two files next to `videoTest.js` too: without them the app detects markers on the main thread (it logs `KPM worker unavailable` once).
+The workflow `.github/workflows/pages.yml` builds the app in the same container as the CI build (`emscripten/emsdk:4.0.17`), publishes `videoTest.html`, `videoTest.js`, `videoTest.wasm` and the KPM worker's `videoTest.kpm.js` and `videoTest.kpm.wasm` (with `videoTest.html` also as `index.html`, so the site root opens the app), and deploys them to GitHub Pages. Hosting the app elsewhere, copy the worker's two files next to `videoTest.js` too: without them the app detects markers on the main thread (it logs `KPM worker unavailable` once). Publish the default build, not one made with `node build-docker.js --debug`: that one carries debug information and is several times larger.
 
 **Repository settings.** The repository owner changes two settings once:
 

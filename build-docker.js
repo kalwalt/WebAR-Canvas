@@ -20,6 +20,9 @@ const isClean = args.includes('--clean');
 const runTests = args.includes('--test');
 // --dry-run prints the container commands after the checks, without starting Docker.
 const dryRun = args.includes('--dry-run');
+// --debug links the app with -g (WEBAR_DEBUG_INFO=ON, #23): readable stack traces, but a
+// download several times larger. Without it the build is the published one, as in CI and Pages.
+const debugInfo = args.includes('--debug');
 
 // --renderer filament|sokol (or --renderer=sokol): the rendering backend (WEBAR_RENDERER, #13).
 const RENDERERS = ['filament', 'sokol'];
@@ -57,6 +60,7 @@ console.log(`[build-docker] Path bridge:    ${bridgePath}`);
 console.log(`[build-docker] Parallel jobs:  ${jobs}`);
 console.log(`[build-docker] Run tests:      ${runTests ? 'yes' : 'no (use --test)'}`);
 console.log(`[build-docker] Renderer:       ${renderer} (${buildDirName}/)`);
+console.log(`[build-docker] Debug info:     ${debugInfo ? 'yes (-g)' : 'no (use --debug)'}`);
 
 // Checks before Docker starts, so a missing prerequisite fails at once with a clear message
 // instead of in the middle of the container build.
@@ -97,7 +101,9 @@ if (renderer === 'sokol' && !fs.existsSync(path.join(cwd, 'third_party/sokol/sok
 // The host tools and the WASM build run the same scripts as the CI (.github/workflows/build.yml).
 // The path bridge keeps host tools built outside the container (e.g. in WSL) usable:
 // their ImportExecutables file refers to the host path. The sokol backend needs no host tools.
-const buildEnv = `WEBAR_RENDERER=${renderer} BUILD_DIR=/src/${buildDirName}`;
+// WEBAR_DEBUG_INFO goes to every step: build-wasm.sh passes it to each configure, so switching
+// --debug on or off relinks the app in the same build directory.
+const buildEnv = `WEBAR_RENDERER=${renderer} BUILD_DIR=/src/${buildDirName} WEBAR_DEBUG_INFO=${debugInfo ? 'ON' : 'OFF'}`;
 const containerCommands = [
   'apt-get update && apt-get install -y ninja-build',
   ...(renderer === 'filament'

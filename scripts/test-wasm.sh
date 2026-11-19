@@ -6,8 +6,10 @@
 # (after scripts/build-host-tools.sh for the Filament renderer; sokol needs no host tools).
 # Exits with the number of failed checks.
 #
-# Usage: [WEBAR_RENDERER=...] [BUILD_DIR=dir] scripts/test-wasm.sh [jobs]
+# Usage: [WEBAR_RENDERER=...] [BUILD_DIR=dir] [WEBAR_DEBUG_INFO=OFF|ON] scripts/test-wasm.sh [jobs]
 # The runners do not use a renderer; BUILD_DIR (default build-wasm/) is shared with build-wasm.sh.
+# Give it the same WEBAR_DEBUG_INFO as the app's build (build-docker.js does): it reconfigures the
+# folder but builds only the test targets, so the app keeps the setting it was last linked with.
 set -eu
 
 root=$(cd "$(dirname "$0")/.." && pwd)

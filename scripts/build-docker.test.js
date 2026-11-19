@@ -124,3 +124,29 @@ test('--dry-run by default keeps the Filament build in build-wasm', (t) => {
   assert.match(result.stdout, /BUILD_DIR=\/src\/build-wasm /);
   assert.doesNotMatch(result.stdout, /test-wasm\.sh/);
 });
+
+// --- Debug information (#23): published builds by default, -g only with --debug ---
+
+test('--dry-run by default builds the published configuration, without debug information', (t) => {
+  const dir = makeTree(t, SOKOL_MARKERS);
+  const result = runWith(dir, ['--renderer', 'sokol', '--test', '--dry-run']);
+  assert.strictEqual(result.status, 0, result.stderr);
+  // Every build and test step gets the setting, so a cached ON never leaks into a published build.
+  const steps = result.stdout.split('\n').filter((line) => /(build|test)-wasm\.sh/.test(line));
+  assert.strictEqual(steps.length, 2);
+  for (const step of steps) assert.match(step, /WEBAR_DEBUG_INFO=OFF /);
+  assert.match(result.stdout, /Debug info: +no/);
+});
+
+test('--debug builds with debug information, in the same build directory', (t) => {
+  const dir = makeTree(t, SUBMODULE_MARKERS);
+  const result = runWith(dir, ['--debug', '--test', '--dry-run']);
+  assert.strictEqual(result.status, 0, result.stderr);
+  const steps = result.stdout.split('\n').filter((line) => /(build|test)-wasm\.sh/.test(line));
+  assert.strictEqual(steps.length, 2);
+  for (const step of steps) {
+    assert.match(step, /WEBAR_DEBUG_INFO=ON /);
+    assert.match(step, /BUILD_DIR=\/src\/build-wasm /);
+  }
+  assert.match(result.stdout, /Debug info: +yes/);
+});

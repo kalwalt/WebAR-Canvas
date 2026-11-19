@@ -18,7 +18,7 @@ node build-docker.js --test                    # build-wasm/, Filament; the firs
 
 - Run each in the background, one at a time (never two builds on one folder), output to a log outside the repository.
 - Pass: exit code 0, and both runners end with `N checks, 0 failed` (`nft_tests`, then `core_tests`). Report the two counts.
-- Also run `node --test scripts/build-docker.test.js .claude/hooks/guard-submodules.test.js` (no Docker).
+- Also run `node --test scripts/build-docker.test.js scripts/check-wasm-debug.test.js .claude/hooks/guard-submodules.test.js` (no Docker).
 
 ## 2. Serve
 

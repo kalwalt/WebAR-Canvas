@@ -169,9 +169,14 @@ node build-docker.js --test
 
 # The sokol renderer instead of Filament: no Filament submodule, no host tools
 node build-docker.js --renderer sokol --test
+
+# A development build with debug information (-g), for readable stack traces
+node build-docker.js --debug
 ```
 
-**Rendering backend.** `WEBAR_RENDERER` (CMake) chooses the renderer: `filament` (default) or `sokol`. `node build-docker.js --renderer sokol` builds it into its own folder, `build-wasm-sokol/` (the same `videoTest.*` files), skips the Filament host tools and does not need `third_party/filament` checked out: sokol is two headers vendored in `third_party/sokol/`. glTF loading needs Filament's `gltfio`, so it is off with sokol. `--dry-run` prints the commands the container would run, without starting Docker. Sizes at the time of writing (`videoTest.wasm`, linked with `-g`): about 8.7 MB with Filament (2.9 MB gzipped) and 4.4 MB with sokol (1.7 MB gzipped).
+**Published and development builds.** By default `build-docker.js` makes the published build, the one CI tests and GitHub Pages deploys: no debug information. `--debug` links the app with `-g` (`WEBAR_DEBUG_INFO=ON` in CMake) into the same build folder: C++ function names in the browser's stack traces, but a download several times larger, so never publish it. Switching between the two relinks the app; it does not recompile it.
+
+**Rendering backend.** `WEBAR_RENDERER` (CMake) chooses the renderer: `filament` (default) or `sokol`. `node build-docker.js --renderer sokol` builds it into its own folder, `build-wasm-sokol/` (the same `videoTest.*` files), skips the Filament host tools and does not need `third_party/filament` checked out: sokol is two headers vendored in `third_party/sokol/`. glTF loading needs Filament's `gltfio`, so it is off with sokol. `--dry-run` prints the commands the container would run, without starting Docker. Sizes of the published `videoTest.wasm` at the time of writing: about 3.4 MB with Filament (1.8 MB gzipped) and 1.3 MB with sokol (0.8 MB gzipped); with `--debug`, 8.7 MB (2.9 MB) and 4.5 MB (1.7 MB).
 
 The first build also compiles the Filament host tools (`matc`, `resgen`, `cmgen`, `glslminifier`, `uberz`) into `third_party/filament/out/host` with `scripts/build-host-tools.sh`; this takes a while once and is skipped afterwards. The same scripts run in CI (`.github/workflows/build.yml`) on every pull request to `dev` and `master`.
 

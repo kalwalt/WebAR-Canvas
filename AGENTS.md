@@ -103,7 +103,7 @@ WebAR-Canvas/
 │   │   └── WorkerKpmDetector, KpmWorkerLink, WorkerTransport, KpmTransport.h  # KPM in a Web Worker (#16)
 │   └── worker/              # The KPM worker module (videoTest.kpm.js/.wasm): kpm_worker.cpp, kpm_worker_main.js
 ├── tests/                   # Node runners: nft_tests.cpp (ARNFTTracker, worker detector), core_tests.cpp (pure src/core), kpm_worker_tests.cpp; kpm_worker_browser.{cpp,html} (browser check, built on request)
-├── scripts/                 # build-host-tools.sh, build-wasm.sh, test-wasm.sh (run in the container), build-docker.test.js
+├── scripts/                 # build-host-tools.sh, build-wasm.sh, test-wasm.sh (run in the container), build-docker.test.js, check-wasm-debug.js
 ├── docs/                    # template.md (using the repository as a template), superpowers/plans/ (stage plans)
 ├── third_party/
 │   ├── filament/            # Google Filament submodule (Filament renderer only)
@@ -143,13 +143,18 @@ node build-docker.js --renderer sokol --test
 
 # Print the container commands after the checks, without starting Docker
 node build-docker.js --renderer sokol --dry-run
+
+# A development build: the app linked with -g, for readable stack traces (never publish it)
+node build-docker.js --debug
 ```
+
+Published and development builds (#23): the default is the published build, which CI tests and Pages deploys, with no debug information. `--debug` sets `WEBAR_DEBUG_INFO=ON` (CMake option, default OFF), which links the app with `-g`: the `name` section, so stack traces show C++ function names (`ARNFTTracker::ARNFTTracker()` instead of `wasm-function[311]`), at several times the download size. `-g` is a link option only: the DWARF it keeps comes from Emscripten's prebuilt libc and libc++, not from this repository's sources or WebARKitLib, so there are no source lines for them (that would need `-g` at compile time too, which recompiles everything). It goes to the same build folder; switching relinks the app only. The KPM worker module never gets `-g`. `-g` also changes the generated code (Binaryen keeps the DWARF valid by running fewer optimizations, and the JavaScript is not minified), so check a fix in the published build too.
 
 Build times on the maintainer's machine: the first Filament build in a checkout takes ~15–30 min (the host tools; `uberz` alone ~13 min), later ones ~3–10 min; a sokol build ~3 min. Run long builds in the background, and never run two builds on the same build folder (they share its CMake cache). The Node runners use no renderer, so `--renderer sokol --test` checks a change to `src/core/` or `src/nft/` in ~3 min.
 
 `build-docker.js` runs these scripts inside the container, the same ones the CI runs (`.github/workflows/build.yml`):
 - `scripts/build-host-tools.sh`: builds the Filament host tools (`matc`, `resgen`, `cmgen`, `glslminifier`, and `uberz` for the ubershader archive that glTF loading needs) in `third_party/filament/out/host` with emsdk's clang, once; it builds only the missing ones. When the list changes, bump the `-vN` suffix of the CI cache key in `.github/workflows/build.yml` (and `pages.yml`).
-- `scripts/build-wasm.sh [jobs] [target]`: configures and builds a target (`WebAR-Canvas` by default). Environment: `WEBAR_RENDERER` (`filament` or `sokol`, default `filament`) and `BUILD_DIR` (relative to the repository; default `build-wasm/`, or `build-wasm-<renderer>/` for another renderer). With sokol, `build-docker.js` skips `build-host-tools.sh`; `--dry-run` prints the container commands without starting Docker.
+- `scripts/build-wasm.sh [jobs] [target]`: configures and builds a target (`WebAR-Canvas` by default). Environment: `WEBAR_RENDERER` (`filament` or `sokol`, default `filament`), `BUILD_DIR` (relative to the repository; default `build-wasm/`, or `build-wasm-<renderer>/` for another renderer) and `WEBAR_DEBUG_INFO` (`OFF` or `ON`, default `OFF`; passed on every configure, so a cached `ON` never reaches a published build). With sokol, `build-docker.js` skips `build-host-tools.sh`; `--dry-run` prints the container commands without starting Docker.
 - `scripts/test-wasm.sh` (with `--test`): builds and runs three Node runners, with no browser or webcam, and links the worker module; the exit code is the total number of failed checks.
   - `nft_tests` (`tests/nft_tests.cpp`) drives `ARNFTTracker` on WebARKitLib's fixtures (`tests/data`, embedded at `/data`, including `pinball-demo.jpg`), and the worker-backed detector with a fake transport and a loopback transport that runs the worker's entry points in-process. In Node there is no `Worker`, so trackers built with the default transport fall back (one `KPM worker unavailable` line each).
   - `kpm_worker_tests` (`tests/kpm_worker_tests.cpp`) tests the worker module's entry points (`src/worker/kpm_worker.cpp`).
@@ -159,7 +164,7 @@ Build times on the maintainer's machine: the first Filament build in a checkout 
 
 The Emscripten cache lives in the `webar-canvas-emcache-4.0.17` Docker volume, so the libjpeg and zlib ports are downloaded once.
 
-CI (`.github/workflows/build.yml`) runs on pushes and pull requests to `dev` and `master` (and by hand): the `wasm` job (Filament, host tools cached under the key `filament-host-tools-<filament sha>-emsdk-4.0.17-v2`) and the `wasm-sokol` job, which checks out only WebARKitLib. Both run the Node runners; the runner tests (`node --test scripts/build-docker.test.js .claude/hooks/guard-submodules.test.js`) run first.
+CI (`.github/workflows/build.yml`) runs on pushes and pull requests to `dev` and `master` (and by hand): the `wasm` job (Filament, host tools cached under the key `filament-host-tools-<filament sha>-emsdk-4.0.17-v2`) and the `wasm-sokol` job, which checks out only WebARKitLib. Both run the Node runners and `scripts/check-wasm-debug.js`, which fails if the published `videoTest.wasm` or `videoTest.kpm.wasm` has a `.debug_*`, `name` or `external_debug_info` section (as does `pages.yml` before it deploys); the runner tests (`node --test scripts/build-docker.test.js scripts/check-wasm-debug.test.js .claude/hooks/guard-submodules.test.js`) run first.
 
 GitHub Pages: `.github/workflows/pages.yml` builds the app with the same scripts and deploys it, on the default branch only. The repository is a GitHub template; `docs/template.md` explains how to start a project from it and the Pages settings.
 
