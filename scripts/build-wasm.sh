@@ -4,7 +4,8 @@
 # Run it inside the emscripten/emsdk image, as build-docker.js and the CI do. The Filament
 # renderer needs scripts/build-host-tools.sh first; the sokol renderer needs no host tools.
 # Uses Ninja when it is installed, Unix Makefiles otherwise.
-# The test targets (nft_tests, core_tests) are configured too, but only built when asked for.
+# The test targets (nft_tests, core_tests, kpm_worker_tests, kpm_worker_browser) are configured too,
+# but only built when asked for.
 #
 # Usage: [WEBAR_RENDERER=filament|sokol] [BUILD_DIR=dir] scripts/build-wasm.sh [jobs] [target]
 #   WEBAR_RENDERER  the rendering backend (default: filament)

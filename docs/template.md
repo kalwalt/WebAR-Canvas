@@ -23,7 +23,7 @@ WebAR-Canvas is a GitHub template repository: you can start your own WebAR app f
    ```bash
    node build-docker.js
    ```
-   The app is written to `build-wasm/` (`videoTest.html`, `videoTest.js`, `videoTest.wasm`); serve that folder over HTTP to try it, as described in the README, "Running & Testing".
+   The app is written to `build-wasm/` (`videoTest.html`, `videoTest.js`, `videoTest.wasm`, and the KPM worker `videoTest.kpm.js` / `videoTest.kpm.wasm`); serve that folder over HTTP to try it, as described in the README, "Running & Testing".
 
 ## Write your app
 
@@ -50,7 +50,7 @@ The README section "Developing Your Own AR Application" has a complete example, 
 
 ## Publish on GitHub Pages
 
-The workflow `.github/workflows/pages.yml` builds the app in the same container as the CI build (`emscripten/emsdk:4.0.17`), publishes `videoTest.html`, `videoTest.js` and `videoTest.wasm` (with `videoTest.html` also as `index.html`, so the site root opens the app), and deploys them to GitHub Pages.
+The workflow `.github/workflows/pages.yml` builds the app in the same container as the CI build (`emscripten/emsdk:4.0.17`), publishes `videoTest.html`, `videoTest.js`, `videoTest.wasm` and the KPM worker's `videoTest.kpm.js` and `videoTest.kpm.wasm` (with `videoTest.html` also as `index.html`, so the site root opens the app), and deploys them to GitHub Pages. Hosting the app elsewhere, copy the worker's two files next to `videoTest.js` too: without them the app detects markers on the main thread (it logs `KPM worker unavailable` once).
 
 **Repository settings.** The repository owner changes two settings once:
 

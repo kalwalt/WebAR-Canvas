@@ -52,7 +52,7 @@ jobs:
       - name: Build WebAR-Canvas
         run: sh scripts/build-wasm.sh
 
-      - name: Run the tests (nft_tests, core_tests)
+      - name: Run the tests (nft_tests, core_tests, kpm_worker_tests)
         run: sh scripts/test-wasm.sh
 
       - name: Upload the app
@@ -63,6 +63,8 @@ jobs:
             build-wasm/videoTest.html
             build-wasm/videoTest.js
             build-wasm/videoTest.wasm
+            build-wasm/videoTest.kpm.js
+            build-wasm/videoTest.kpm.wasm
           if-no-files-found: error
 
   # The sokol renderer (#13): Filament is not checked out and no host tools are built, which
@@ -90,7 +92,7 @@ jobs:
       - name: Build WebAR-Canvas
         run: sh scripts/build-wasm.sh
 
-      - name: Run the tests (nft_tests, core_tests)
+      - name: Run the tests (nft_tests, core_tests, kpm_worker_tests)
         run: sh scripts/test-wasm.sh
 
       - name: Upload the app
@@ -101,4 +103,6 @@ jobs:
             build-wasm-sokol/videoTest.html
             build-wasm-sokol/videoTest.js
             build-wasm-sokol/videoTest.wasm
+            build-wasm-sokol/videoTest.kpm.js
+            build-wasm-sokol/videoTest.kpm.wasm
           if-no-files-found: error

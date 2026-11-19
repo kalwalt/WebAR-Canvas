@@ -69,6 +69,7 @@ jobs:
         run: |
           mkdir -p pages
           cp build-wasm/videoTest.html build-wasm/videoTest.js build-wasm/videoTest.wasm pages/
+          cp build-wasm/videoTest.kpm.js build-wasm/videoTest.kpm.wasm pages/
           cp build-wasm/videoTest.html pages/index.html
 
       - name: Upload the site

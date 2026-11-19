@@ -9,6 +9,8 @@
 #include <WebARKitTrackers/WebARKitNFT/ARToolKitNFTCore.h>
 #include <WebARKitVideoLuma.h>
 
+#include "KpmTransport.h"
+
 constexpr int NFT_PAGES_MAX = PAGES_MAX;
 
 struct NFTMarkerData {
@@ -21,7 +23,7 @@ struct NFTMarkerData {
 /** Where the last update() spent its time, in milliseconds (0 before any measured update). */
 struct NFTUpdateTimings {
     double lumaMs = 0.0;  // RGBA to luma conversion
-    double trackMs = 0.0; // the core: KPM detection and AR2 tracking
+    double trackMs = 0.0; // the core: AR2 tracking, and KPM detection (with the KPM worker, only handing the frame to it)
 };
 
 /**
@@ -38,6 +40,8 @@ struct NFTUpdateTimings {
 class ARNFTTracker {
 public:
     ARNFTTracker();
+    /** With the KPM worker reached through this transport (tests); the default is the browser's Web Worker. */
+    explicit ARNFTTracker(std::unique_ptr<KpmTransport> kpmTransport);
     ~ARNFTTracker();
 
     // Prevent copying
@@ -48,12 +52,13 @@ public:
     int loadCamera(const std::string &cparamName);
     /**
      * Allocates the frame for width x height and applies the camera. A later setup() re-applies
-     * the camera: call setupAR2() and loadMarkers({}) after it, as after setCamera().
+     * the camera: call setupAR2() after it, as after setCamera(); the markers already loaded stay
+     * loaded and are detected again (WebARKitLib 0.13.0).
      * @return 0, or -1 when the frame size is not positive or the camera cannot be applied
      *         (the tracker is then torn down)
      */
     int setup(int width, int height, int cameraID);
-    /** Applies another camera. As with the core, call setupAR2() and loadMarkers({}) after it. */
+    /** Applies another camera. As with the core, call setupAR2() after it; loaded markers are kept. */
     int setCamera(int cameraID);
     int setupAR2();
     void teardown();
@@ -110,7 +115,16 @@ public:
     int getLogLevel() const;
 
 private:
-    ARToolKitNFTCore core{singleThreadPreset(), true};
+    // The core's settings: singleThreadPreset(), with the KPM detector in a Web Worker
+    // (Detector::External and makeKpmDetector) when built with WEBAR_KPM_WORKER.
+    NFTTrackingConfig coreConfig();
+    void initCore();
+    static std::unique_ptr<NFTDetector> makeKpmDetector(void *user, KpmHandle *kpm, const ARParam &camera);
+
+    // The KPM worker's state, shared by the detectors the core creates; declared before core so
+    // it outlives the core's last detector. Null without WEBAR_KPM_WORKER.
+    std::unique_ptr<class KpmWorkerLink> kpmLink;
+    ARToolKitNFTCore core{coreConfig(), true};
     int coreId = -1;
 
     int width = 0;

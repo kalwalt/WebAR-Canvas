@@ -182,6 +182,7 @@ Upon completion, the following artifacts are generated in `build-wasm/` (`build-
 - `videoTest.html`: The ready-to-run HTML shell.
 - `videoTest.js`: Emscripten JavaScript runtime glue.
 - `videoTest.wasm`: The compiled native C++ engine binary.
+- `videoTest.kpm.js`, `videoTest.kpm.wasm`: The KPM worker: marker detection runs in a Web Worker, off the main thread (#16). Deploy them next to `videoTest.js`; without them the app still works and detects on the main thread (slower while searching for a marker). `-DWEBAR_KPM_WORKER=OFF` builds the app without the worker.
 
 ---
 
@@ -263,6 +264,8 @@ var Module = { webarConfig: { markers: ['/assets/markers/pinball'], videoWidth: 
 ```
 
 The default shell (`src/shell.html`) already declares `var Module = { ... }`: add `webarConfig` to that object rather than declaring a second `Module`.
+
+Two `webarConfig` fields concern the KPM worker: `kpmWorker: false` runs marker detection on the main thread instead (the default shell sets it for `?kpmWorker=0` in the page URL, for comparisons), and `kpmWorkerUrl` sets where `videoTest.kpm.js` is loaded from (default: next to `videoTest.js`).
 
 To start your own project from this repository and publish it on GitHub Pages, see [Using WebAR-Canvas as a template](docs/template.md).
 
