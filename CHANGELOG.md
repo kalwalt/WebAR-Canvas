@@ -18,14 +18,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
     `src/app/`, the framework in `src/core/`.
   - `ARAppConfig` and `AR_APP_MAIN(App, w, h, marker)`; a page can override the canvas, the
     camera parameters, the frame size and the markers with `Module.webarConfig`.
-  - `ARAnchor` and `attachMeshToMarker()`: objects bound to a marker, centred on it, with
-    optional smoothing.
+  - `ARAnchor`: objects bound to a marker, centred on it, with optional smoothing;
+    `attachToMarker(entity, i)` for Filament entities (#18) and `attachMeshToMarker(id, i)` for
+    the mesh API on both renderers (#19).
   - Input: touch, mouse and resize events in canvas pixels (`touchDown`, `mouseDown`,
     `windowResized`, ...).
   - Primitives: boxes, cubes, planes and spheres (`createBox`, `createCube`, `createPlane`,
     `createSphere` with Filament; the mesh API below on both renderers).
   - glTF models through Filament's `gltfio` (`loadModel()`, `placeModelOnMarker()`; from a page
-    with `webar_load_model` / `webar_place_model`), with the `uberz` host tool. Filament only.
+    with `webar_load_model` / `webar_place_model`), with the `uberz` host tool. Filament only;
+    `-DWEBAR_CANVAS_GLTF=OFF` builds without it.
 - **A second renderer, sokol_gfx** (#13, #17, #19): `IARRenderer` separates the engine from the
   renderer, and `WEBAR_RENDERER=sokol` (`node build-docker.js --renderer sokol`) builds a lighter
   app that needs neither the Filament submodule nor its host tools. A backend-neutral mesh API
@@ -34,8 +36,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   thread's tick drops from about 120 ms to under 1 ms on a desktop webcam, and from about 400 ms to
   2 ms on a mid-range Android phone. The worker is its own small module,
   `videoTest.kpm.js/.wasm`, deployed next to `videoTest.js`. The app falls back to the main
-  thread when the worker cannot run, and `?kpmWorker=0` (`Module.webarConfig.kpmWorker = false`)
-  turns it off.
+  thread when the worker cannot run. `?kpmWorker=0` (`Module.webarConfig.kpmWorker = false`)
+  turns it off at runtime, `Module.webarConfig.kpmWorkerUrl` points at another location, and
+  `-DWEBAR_KPM_WORKER=OFF` builds the app without it.
 - **The repository as a template, published on GitHub Pages** (#18): `.github/workflows/pages.yml`
   builds and deploys the app from the default branch; `docs/template.md` explains how to start a
   project from it.
@@ -51,14 +54,23 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Node test runners, run by `node build-docker.js --test` and in CI: `nft_tests` for
   `ARNFTTracker` (tracking `pinball-demo.jpg`, lost marker, out-of-range indices, missing assets,
   frustum and detection settings, the worker-backed detector), `core_tests` for the framework's
-  pure C++ parts and `kpm_worker_tests` for the worker module (#9, #11, #16, #17).
+  pure C++ parts and `kpm_worker_tests` for the worker module (#9, #11, #16, #17); and
+  `node --test` checks of `build-docker.js` and `scripts/check-wasm-debug.js` (#14, #25).
 - Agent setup: `AGENTS.md` as the single guide, a `wasm-reviewer` agent, a `/verify-wasm` skill
   and a hook that protects the submodules (#20).
 
 ### Changed
 
+- **Breaking: apps derive from `ARBaseApp`** (#17). Moving an app from 0.2.0:
+  - `ARBaseEngine::init(canvasId, width, height, ...)` became `init(const ARAppConfig&)`, and an
+    app usually starts with `AR_APP_MAIN` instead of calling it;
+  - the pure virtual `setup(Engine*, Scene*)` became `setup()` with no arguments; a Filament app
+    gets the engine and scene from `getEngine()` / `getScene()`;
+  - `update(float deltaTime)` gets the real elapsed time in seconds instead of a constant 0.016,
+    so animations written for 0.2.0 change speed on displays faster or slower than 60 Hz;
+  - the example class `WebARApp` in `src/main.cpp` became `App` in `src/app/`.
 - **Published builds carry no debug information** (#23, #25): `videoTest.wasm` is about 1.8 MB
-  gzipped with Filament (was 2.9 MB) and 0.8 MB with sokol (was 1.7 MB). CI and the Pages
+  gzipped with Filament instead of 2.9 MB with `-g`, and about 0.8 MB with the new sokol renderer. CI and the Pages
   workflow fail if a published `.wasm` has debug sections (`scripts/check-wasm-debug.js`).
 - **Each camera frame is processed once** (#4, #15): the texture upload, the frame capture and
   the tracking run when the `<video>` presents a new frame (`requestVideoFrameCallback`), not on
@@ -70,7 +82,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   (webarkit/WebARKitLib#116) and recreates the detector in `setupAR2()`
   (webarkit/WebARKitLib#124).
 - `ARNFTTracker` delegates camera, markers, KPM detection, AR2 tracking and pose filtering to
-  `ARToolKitNFTCore`; its own code drops from ~480 to ~170 lines. Same settings as before:
+  `ARToolKitNFTCore`; `ARNFTTracker.cpp` drops from ~480 lines to ~190 (#12), ~250 with the KPM
+  worker wiring (#22). Same settings as before:
   filtering on, 200 ms detection interval, projection planes 10 / 5000 (#11, #12).
 - `ARNFTTracker::getMarkerData()` returns `NFTMarkerData` by value.
 - `ARNFTTracker::setup()` returns -1 and tears the tracker down when the frame size is not
@@ -79,6 +92,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - `ARNFTTracker::update()` keeps ARToolKit's log at WARN while the core runs: the core logs every
   tracked frame at INFO ("Tracked page ...").
 - The engine moved to `src/core/` and the demo app to `src/app/` (#17).
+- README: the reference marker image, fixed links and both renderers named (#21).
 - `build-docker.js` keeps the Emscripten cache in the `webar-canvas-emcache-4.0.17` Docker
   volume, so the libjpeg and zlib ports are downloaded once.
 
