@@ -7,8 +7,10 @@
 # The test targets (nft_tests, core_tests, kpm_worker_tests, kpm_worker_browser) are configured too,
 # but only built when asked for.
 #
-# Usage: [WEBAR_RENDERER=filament|sokol] [BUILD_DIR=dir] scripts/build-wasm.sh [jobs] [target]
+# Usage: [WEBAR_RENDERER=filament|sokol] [BUILD_DIR=dir] [WEBAR_DEBUG_INFO=OFF|ON] scripts/build-wasm.sh [jobs] [target]
 #   WEBAR_RENDERER  the rendering backend (default: filament)
+#   WEBAR_DEBUG_INFO  ON links the app with -g for readable stack traces (default: OFF, the
+#                   published build); passed on every configure, so a cached ON never stays
 #   BUILD_DIR       the build directory, relative to the repository unless absolute
 #                   (default: build-wasm/, or build-wasm-<renderer>/ for another renderer)
 #   target          WebAR-Canvas by default
@@ -18,6 +20,7 @@ root=$(cd "$(dirname "$0")/.." && pwd)
 jobs=${1:-$(nproc)}
 target=${2:-WebAR-Canvas}
 renderer=${WEBAR_RENDERER:-filament}
+debug_info=${WEBAR_DEBUG_INFO:-OFF}
 if [ "$renderer" = "filament" ]; then
   build_dir=${BUILD_DIR:-build-wasm}
 else
@@ -44,7 +47,7 @@ emcmake cmake -S "$root" -B "$build_dir" -G "$generator" \
   -DWEBGL=1 \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_SYSTEM_NAME=Emscripten \
-  -DWEBAR_RENDERER="$renderer" \
+  -DWEBAR_RENDERER="$renderer"   -DWEBAR_DEBUG_INFO="$debug_info" \
   $matc_option \
   -DWEBAR_CANVAS_BUILD_TESTS=ON
 cmake --build "$build_dir" -j "$jobs" --target "$target"

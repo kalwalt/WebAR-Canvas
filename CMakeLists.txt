@@ -229,8 +229,17 @@ target_link_options(${PROJECT_NAME} PRIVATE
     "--embed-file=${CMAKE_CURRENT_SOURCE_DIR}/assets/pinball.fset@/assets/markers/pinball.fset"
     "--embed-file=${CMAKE_CURRENT_SOURCE_DIR}/assets/pinball.fset3@/assets/markers/pinball.fset3"
     "--embed-file=${CMAKE_CURRENT_SOURCE_DIR}/assets/pinball.iset@/assets/markers/pinball.iset"
-    "-g"
 )
+
+# --- Debug information (#23) ---
+# OFF is the published build: what CI tests and Pages deploys. ON links the app with -g, which keeps
+# DWARF and function names for readable stack traces but makes the download several times larger.
+# scripts/build-wasm.sh passes it on every configure (WEBAR_DEBUG_INFO, node build-docker.js --debug).
+# The KPM worker module never gets -g (see kpm_worker above).
+option(WEBAR_DEBUG_INFO "Link the app with -g (debug information, for development only)" OFF)
+if(WEBAR_DEBUG_INFO)
+    target_link_options(${PROJECT_NAME} PRIVATE "-g")
+endif()
 
 add_dependencies(${PROJECT_NAME} ARNFTTracker)
 

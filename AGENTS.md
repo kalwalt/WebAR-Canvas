@@ -143,13 +143,18 @@ node build-docker.js --renderer sokol --test
 
 # Print the container commands after the checks, without starting Docker
 node build-docker.js --renderer sokol --dry-run
+
+# A development build: the app linked with -g, for readable stack traces (never publish it)
+node build-docker.js --debug
 ```
+
+Published and development builds (#23): the default is the published build, which CI tests and Pages deploys, with no debug information. `--debug` sets `WEBAR_DEBUG_INFO=ON` (CMake option, default OFF), which links the app with `-g`: DWARF and the `name` section, so stack traces show function names and source lines, at several times the download size. It goes to the same build folder; switching relinks the app only. The KPM worker module never gets `-g`. `-g` also changes the generated code (Binaryen keeps the DWARF valid by running fewer optimizations, and the JavaScript is not minified), so check a fix in the published build too.
 
 Build times on the maintainer's machine: the first Filament build in a checkout takes ~15–30 min (the host tools; `uberz` alone ~13 min), later ones ~3–10 min; a sokol build ~3 min. Run long builds in the background, and never run two builds on the same build folder (they share its CMake cache). The Node runners use no renderer, so `--renderer sokol --test` checks a change to `src/core/` or `src/nft/` in ~3 min.
 
 `build-docker.js` runs these scripts inside the container, the same ones the CI runs (`.github/workflows/build.yml`):
 - `scripts/build-host-tools.sh`: builds the Filament host tools (`matc`, `resgen`, `cmgen`, `glslminifier`, and `uberz` for the ubershader archive that glTF loading needs) in `third_party/filament/out/host` with emsdk's clang, once; it builds only the missing ones. When the list changes, bump the `-vN` suffix of the CI cache key in `.github/workflows/build.yml` (and `pages.yml`).
-- `scripts/build-wasm.sh [jobs] [target]`: configures and builds a target (`WebAR-Canvas` by default). Environment: `WEBAR_RENDERER` (`filament` or `sokol`, default `filament`) and `BUILD_DIR` (relative to the repository; default `build-wasm/`, or `build-wasm-<renderer>/` for another renderer). With sokol, `build-docker.js` skips `build-host-tools.sh`; `--dry-run` prints the container commands without starting Docker.
+- `scripts/build-wasm.sh [jobs] [target]`: configures and builds a target (`WebAR-Canvas` by default). Environment: `WEBAR_RENDERER` (`filament` or `sokol`, default `filament`), `BUILD_DIR` (relative to the repository; default `build-wasm/`, or `build-wasm-<renderer>/` for another renderer) and `WEBAR_DEBUG_INFO` (`OFF` or `ON`, default `OFF`; passed on every configure, so a cached `ON` never reaches a published build). With sokol, `build-docker.js` skips `build-host-tools.sh`; `--dry-run` prints the container commands without starting Docker.
 - `scripts/test-wasm.sh` (with `--test`): builds and runs three Node runners, with no browser or webcam, and links the worker module; the exit code is the total number of failed checks.
   - `nft_tests` (`tests/nft_tests.cpp`) drives `ARNFTTracker` on WebARKitLib's fixtures (`tests/data`, embedded at `/data`, including `pinball-demo.jpg`), and the worker-backed detector with a fake transport and a loopback transport that runs the worker's entry points in-process. In Node there is no `Worker`, so trackers built with the default transport fall back (one `KPM worker unavailable` line each).
   - `kpm_worker_tests` (`tests/kpm_worker_tests.cpp`) tests the worker module's entry points (`src/worker/kpm_worker.cpp`).
