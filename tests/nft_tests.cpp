@@ -739,9 +739,9 @@ static void recreated_detector_gets_camera_and_every_marker() {
   // A second marker later: markersAdded() gets the new batch only.
   CHECK(t.loadMarker("/data/pinball") == 1);
   CHECK(transport->markerPages.size() == 2 && transport->markerPages[1] == std::vector<int>{1});
-  // setupAR2() destroys the detector; the next load creates one with the camera and all markers.
+  // setupAR2() replaces the detector: with markers loaded, the core creates the new one at once
+  // (WebARKitLib 0.13.0), with the camera and every marker, and no load call is needed.
   CHECK(t.setupAR2() == 0);
-  CHECK(t.loadMarkers({}).empty());
   CHECK(transport->starts == 1);  // the worker is not respawned
   CHECK(transport->cameras.size() == 2 && transport->cameras[1].xsize == 2000);
   CHECK(transport->markerPages.size() == 3 && transport->markerPages[2] == (std::vector<int>{0, 1}));
