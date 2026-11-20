@@ -1,28 +1,17 @@
 #ifndef AR_NFT_TRACKER_H
 #define AR_NFT_TRACKER_H
 
-#include <stdio.h>
+#include <algorithm>
+#include <memory>
 #include <string>
 #include <vector>
-#include <unordered_map>
-#include <memory>
-#include <array>
-#include <algorithm>
 
-#include <AR/ar.h>
-#include <AR/config.h>
-#include <AR2/tracking.h>
-#include <AR/arFilterTransMat.h>
-#include <AR/paramGL.h>
-#include <KPM/kpm.h>
-#include <WebARKit/WebARKitLog.h>
+#include <WebARKitTrackers/WebARKitNFT/ARToolKitNFTCore.h>
 #include <WebARKitVideoLuma.h>
 
-#include <WebARKitTrackers/WebARKitNFT/trackingMod.h>
-#include <WebARKitTrackers/WebARKitNFT/markerDecompress.h>
-#include <WebARKitTrackers/WebARKitNFT/NFTMarkerState.h>
+#include "KpmTransport.h"
 
-constexpr int NFT_PAGES_MAX = 20;
+constexpr int NFT_PAGES_MAX = PAGES_MAX;
 
 struct NFTMarkerData {
     int id = -1;
@@ -31,9 +20,28 @@ struct NFTMarkerData {
     int dpi = 0;
 };
 
+/** Where the last update() spent its time, in milliseconds (0 before any measured update). */
+struct NFTUpdateTimings {
+    double lumaMs = 0.0;  // RGBA to luma conversion
+    double trackMs = 0.0; // the core: AR2 tracking, and KPM detection (with the KPM worker, only handing the frame to it)
+};
+
+/**
+ * The NFT tracker of WebAR-Canvas: an adapter over WebARKitLib's ARToolKitNFTCore.
+ *
+ * It owns the RGBA frame that JavaScript fills (getVideoFrame()) and its luma conversion;
+ * camera, markers, KPM detection, AR2 tracking and pose filtering are the core's.
+ * Single-thread core (singleThreadPreset()), with pose filtering on, a 200 ms detection
+ * interval and projection planes 10 / 5000.
+ *
+ * Typical use: loadCamera(), setup(), setupAR2(), loadMarker(); then, per frame, fill
+ * getVideoFrame() and call update().
+ */
 class ARNFTTracker {
 public:
     ARNFTTracker();
+    /** With the KPM worker reached through this transport (tests); the default is the browser's Web Worker. */
+    explicit ARNFTTracker(std::unique_ptr<KpmTransport> kpmTransport);
     ~ARNFTTracker();
 
     // Prevent copying
@@ -42,7 +50,15 @@ public:
 
     // Camera parameter loading & initialization
     int loadCamera(const std::string &cparamName);
+    /**
+     * Allocates the frame for width x height and applies the camera. A later setup() re-applies
+     * the camera: call setupAR2() after it, as after setCamera(); the markers already loaded stay
+     * loaded and are detected again (WebARKitLib 0.13.0).
+     * @return 0, or -1 when the frame size is not positive or the camera cannot be applied
+     *         (the tracker is then torn down)
+     */
     int setup(int width, int height, int cameraID);
+    /** Applies another camera. As with the core, call setupAR2() after it; loaded markers are kept. */
     int setCamera(int cameraID);
     int setupAR2();
     void teardown();
@@ -55,13 +71,11 @@ public:
     ARUint8* getVideoFrame() { return videoFrame.get(); }
     const ARUint8* getVideoFrame() const { return videoFrame.get(); }
     int getVideoFrameSize() const { return videoFrameSize; }
-    ARUint8* getVideoLuma() { return videoLuma.get(); }
-    const ARUint8* getVideoLuma() const { return videoLuma.get(); }
+    ARUint8* getVideoLuma() { return lumaInfo ? lumaInfo->buff.get() : nullptr; }
+    const ARUint8* getVideoLuma() const { return lumaInfo ? lumaInfo->buff.get() : nullptr; }
 
-    void updateVideoLuma();
     int update(); // Main tracking cycle: converts luma, detects, tracks
-    int detectNFTMarker();
-    void trackMarkers();
+    NFTUpdateTimings getLastUpdateTimings() const { return lastTimings; }
 
     // Tracking state queries
     bool isMarkerTracked(int markerIndex) const;
@@ -72,79 +86,60 @@ public:
     void getPose(int markerIndex, ARdouble pose[3][4]) const;
 
     // Tracking configuration
-    void setContinuousDetection(bool enable) { continuousDetection = enable; }
+    void setContinuousDetection(bool enable);
     bool getContinuousDetection() const { return continuousDetection; }
-    void setDetectionInterval(double intervalMs) { detectionIntervalMs = intervalMs; }
+    void setDetectionInterval(double intervalMs);
     double getDetectionInterval() const { return detectionIntervalMs; }
-    void setFiltering(bool enable) { withFiltering = enable; }
+    void setFiltering(bool enable);
     bool getFiltering() const { return withFiltering; }
-    void setFilterParameters(double sampleRate, double cutoffFreq);
 
     // Marker accessors
-    int getMarkerCount() const { return surfaceSetCount; }
-    const NFTMarkerData& getMarkerData(int index) const;
+    int getMarkerCount() const { return core.markerCount(); }
+    NFTMarkerData getMarkerData(int index) const;
     const NFTMarkerState& getMarkerState(int index) const;
-    NFTMarkerState& getMarkerState(int index);
-    AR2SurfaceSetT* getSurfaceSet(int index) {
-        return (index >= 0 && index < surfaceSetCount) ? surfaceSet[index] : nullptr;
-    }
 
     // Camera frustum projection matrix (OpenGL column-major 4x4)
-    const ARdouble* getCameraLens() const { return cameraLens; }
+    const ARdouble* getCameraLens() const { return core.cameraLens(); }
     void setProjectionPlanes(ARdouble nearP, ARdouble farP);
-    ARdouble getNearPlane() const { return nearPlane; }
-    ARdouble getFarPlane() const { return farPlane; }
-    void recalculateCameraLens();
+    ARdouble getNearPlane() const { return core.getProjectionNearPlane(); }
+    ARdouble getFarPlane() const { return core.getProjectionFarPlane(); }
+    void recalculateCameraLens() { core.recalculateCameraLens(); }
 
     int getWidth() const { return width; }
     int getHeight() const { return height; }
-    const ARParam* getCameraParam() const { return &param; }
-    const ARParamLT* getCameraParamLT() const { return paramLT; }
+    const ARParam* getCameraParam() const { return &core.cameraParam(); }
+    const ARParamLT* getCameraParamLT() const { return core.cameraParamLT(); }
 
     // Logging
     void setLogLevel(int level);
     int getLogLevel() const;
 
 private:
-    void deleteHandles();
+    // The core's settings: singleThreadPreset(), with the KPM detector in a Web Worker
+    // (Detector::External and makeKpmDetector) when built with WEBAR_KPM_WORKER.
+    NFTTrackingConfig coreConfig();
+    void initCore();
+    static std::unique_ptr<NFTDetector> makeKpmDetector(void *user, KpmHandle *kpm, const ARParam &camera);
+
+    // The KPM worker's state, shared by the detectors the core creates; declared before core so
+    // it outlives the core's last detector. Null without WEBAR_KPM_WORKER.
+    std::unique_ptr<class KpmWorkerLink> kpmLink;
+    ARToolKitNFTCore core{coreConfig(), true};
+    int coreId = -1;
 
     int width = 0;
     int height = 0;
-    ARdouble nearPlane = 10.0;
-    ARdouble farPlane = 5000.0;
-    ARdouble cameraLens[16] = {0};
-
-    AR_PIXEL_FORMAT pixFormat = AR_PIXEL_FORMAT_RGBA;
-
-    ARParam param = {};
-    ARParamLT *paramLT = nullptr;
-    ARHandle *arhandle = nullptr;
-    AR3DHandle *ar3DHandle = nullptr;
-    AR2HandleT *ar2Handle = nullptr;
-    KpmHandle *kpmHandle = nullptr;
-
-    std::unordered_map<int, ARParam> cameraParams;
-    int nextCameraID = 0;
-
-    // NFT Marker Data & State
-    int surfaceSetCount = 0;
-    AR2SurfaceSetT *surfaceSet[NFT_PAGES_MAX] = {nullptr};
-    std::array<NFTMarkerState, NFT_PAGES_MAX> markerStates;
-    std::vector<NFTMarkerData> markersData;
 
     // Frame Buffers
     std::unique_ptr<ARUint8[]> videoFrame;
     int videoFrameSize = 0;
-    std::unique_ptr<ARUint8[]> videoLuma;
     webarkit::WebARKitLumaInfo *lumaInfo = nullptr;
+    NFTUpdateTimings lastTimings;
 
-    // Detection & Tracking Parameters
+    // Settings pushed to the core, kept for the getters
     bool continuousDetection = true;
     double detectionIntervalMs = 200.0;
-    double lastKpmEndMs = 0.0;
     bool withFiltering = true;
-    double filterCutoffFrequency = AR_FILTER_TRANS_MAT_CUTOFF_FREQ_DEFAULT;
-    double filterSampleRate = AR_FILTER_TRANS_MAT_SAMPLE_RATE_DEFAULT;
 };
 
 #endif // AR_NFT_TRACKER_H
